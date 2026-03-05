@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Billetterie ChainTicket</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.11.1/ethers.umd.min.js"></script>
+    <style>
+        body { font-family: sans-serif; background: #1a1a2e; color: white; text-align: center; padding: 50px; }
+        .card { background: #16213e; padding: 30px; border-radius: 15px; max-width: 500px; margin: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        button { background: #e94560; color: white; border: none; padding: 15px 25px; border-radius: 5px; cursor: pointer; font-size: 18px; margin: 10px; }
+        #status { margin-top: 20px; padding: 10px; border-radius: 5px; background: #0f3460; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🎟️ ChainTicket Festival</h1>
+        <p>Prix du billet : <b>0.1 ETH</b></p>
+        
+        <button id="connectBtn">Connecter MetaMask</button>
+        <button id="buyBtn" style="display:none;">Acheter mon Billet</button>
+        
+        <div id="status">Veuillez connecter votre portefeuille.</div>
+    </div>
+
+    <script>
+        const contractAddress = "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707";
+        const abi = ["function mintTicket() public payable"];
+
+        let signer, contract;
+
+        document.getElementById('connectBtn').onclick = async () => {
+            if (window.ethereum) {
+                const provider = new ethers.BrowserProvider(window.ethereum);
+                signer = await provider.getSigner();
+                contract = new ethers.Contract(contractAddress, abi, signer);
+                
+                document.getElementById('status').innerText = "Connecté : " + await signer.getAddress();
+                document.getElementById('connectBtn').style.display = 'none';
+                document.getElementById('buyBtn').style.display = 'inline-block';
+            } else {
+                alert("Installez MetaMask !");
+            }
+        };
+
+        document.getElementById('buyBtn').onclick = async () => {
+            try {
+                document.getElementById('status').innerText = "⌛ Transaction en cours...";
+                const tx = await contract.mintTicket({ value: ethers.parseEther("0.1") });
+                await tx.wait();
+                document.getElementById('status').innerHTML = "✅ <b>Succès !</b> Billet acheté avec succès.";
+            } catch (err) {
+                document.getElementById('status').innerText = "❌ Erreur ou limite atteinte.";
+            }
+        };
+    </script>
+</body>
+</html>
