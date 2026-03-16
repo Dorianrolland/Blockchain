@@ -28,6 +28,7 @@ export function ExplorePage() {
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [cityFilter, setCityFilter] = useState("all");
   const [countryFilter, setCountryFilter] = useState("all");
+  const [renderTimestamp] = useState(() => Date.now());
   const deferredSearchInput = useDeferredValue(searchInput);
 
   const copy =
@@ -102,7 +103,6 @@ export function ExplorePage() {
 
   const filteredEvents = useMemo(() => {
     const normalizedSearch = deferredSearchInput.trim().toLowerCase();
-    const now = Date.now();
 
     return [...availableEvents]
       .filter((event) => {
@@ -132,7 +132,7 @@ export function ExplorePage() {
         ) {
           return false;
         }
-        return !event.startsAt || event.startsAt >= now - 86_400_000;
+        return !event.startsAt || event.startsAt >= renderTimestamp - 86_400_000;
       })
       .sort((left, right) => {
         if (!left.startsAt && !right.startsAt) {
@@ -146,7 +146,7 @@ export function ExplorePage() {
         }
         return left.startsAt - right.startsAt;
       });
-  }, [availableEvents, categoryFilter, cityFilter, countryFilter, deferredSearchInput]);
+  }, [availableEvents, categoryFilter, cityFilter, countryFilter, deferredSearchInput, renderTimestamp]);
 
   const featuredEvent =
     filteredEvents.find((event) => event.ticketEventId === selectedEventId) ??
