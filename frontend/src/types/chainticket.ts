@@ -4,9 +4,75 @@ export interface ContractConfig {
   rpcUrl: string;
   explorerTxBaseUrl: string;
   deploymentBlock: number;
+  eventId?: string;
+  eventName?: string;
   ticketNftAddress: string;
   marketplaceAddress: string;
   checkInRegistryAddress: string;
+}
+
+export interface EventDeployment {
+  ticketEventId: string;
+  name: string;
+  symbol: string;
+  primaryPriceWei: string;
+  maxSupply: string;
+  treasury: string;
+  admin: string;
+  ticketNftAddress: string;
+  marketplaceAddress: string;
+  checkInRegistryAddress: string;
+  deploymentBlock: number;
+  registeredAt: number;
+  isDemoInspired?: boolean;
+  demoDisclaimer?: string;
+  source?: "ticketmaster";
+  sourceEventId?: string;
+  sourceUrl?: string | null;
+  startsAt?: number | null;
+  venueName?: string | null;
+  city?: string | null;
+  countryCode?: string | null;
+  imageUrl?: string | null;
+  category?: string | null;
+}
+
+export type ContractScope = "ticket" | "checkin_registry";
+
+export type OperationalActivityType =
+  | "paused"
+  | "unpaused"
+  | "role_granted"
+  | "role_revoked";
+
+export interface OperationalRoleAssignment {
+  ticketEventId: string;
+  contractScope: ContractScope;
+  roleId: string;
+  account: string;
+  grantedBy: string | null;
+  isActive: boolean;
+  updatedBlock: number;
+  updatedTxHash: string;
+}
+
+export interface OperationalActivity {
+  id: string;
+  ticketEventId: string;
+  contractScope: ContractScope;
+  type: OperationalActivityType;
+  roleId?: string;
+  account?: string;
+  actor?: string;
+  blockNumber: number;
+  txHash: string;
+  timestamp: number | null;
+}
+
+export interface OperationalSummary {
+  ticketEventId: string;
+  roles: OperationalRoleAssignment[];
+  recentActivity: OperationalActivity[];
 }
 
 export type ChainEnv = "amoy" | "mainnet-ready";
@@ -15,6 +81,33 @@ export interface RuntimeConfig {
   apiBaseUrl: string | null;
   chainEnv: ChainEnv;
   featureFlags: string[];
+  defaultEventId: string;
+  factoryAddress: string | null;
+  governanceTimelockAddress: string | null;
+  governanceMinDelaySeconds: number;
+  governancePortalUrl: string | null;
+}
+
+export type BackendHealthSeverity = "warning" | "critical";
+
+export interface BackendHealthAlert {
+  code: string;
+  severity: BackendHealthSeverity;
+  message: string;
+}
+
+export interface BackendHealthSnapshot {
+  ok: boolean;
+  degraded: boolean;
+  checkedAt: number;
+  indexedBlock: number;
+  latestBlock: number | null;
+  lag: number | null;
+  stalenessMs: number | null;
+  rpcHealthy: boolean;
+  readModelReady: boolean;
+  configuredDeploymentBlock: number;
+  alerts: BackendHealthAlert[];
 }
 
 export type UiMode = "guide" | "advanced";
@@ -46,6 +139,47 @@ export interface TicketView {
   listingPrice: bigint | null;
 }
 
+export interface TicketAttribute {
+  traitType: string;
+  value: string;
+  displayType?: string;
+}
+
+export interface TicketMetadata {
+  tokenUri: string;
+  name: string | null;
+  description: string | null;
+  image: string | null;
+  animationUrl: string | null;
+  externalUrl: string | null;
+  backgroundColor: string | null;
+  attributes: TicketAttribute[];
+}
+
+export interface TicketMediaAsset {
+  kind: "image" | "animation" | "fallback";
+  src: string | null;
+  posterSrc: string | null;
+  alt: string;
+}
+
+export interface TicketPreviewState {
+  liveTokenUri: string | null;
+  collectibleTokenUri: string | null;
+  activeTokenUri: string;
+  liveMetadata: TicketMetadata | null;
+  collectibleMetadata: TicketMetadata | null;
+  activeMetadata: TicketMetadata | null;
+  liveMedia: TicketMediaAsset | null;
+  collectibleMedia: TicketMediaAsset | null;
+  activeMedia: TicketMediaAsset;
+  activeView: "live" | "collectible";
+  liveQrValue: string | null;
+  collectibleQrValue: string | null;
+  isLoading: boolean;
+  errorMessage: string | null;
+}
+
 export interface MarketplaceView {
   tokenId: bigint;
   seller: string;
@@ -68,6 +202,7 @@ export type PreflightAction =
   | { type: "mint" }
   | { type: "approve"; tokenId: bigint }
   | { type: "list"; tokenId: bigint; price: bigint }
+  | { type: "list_with_permit"; tokenId: bigint; price: bigint }
   | { type: "cancel"; tokenId: bigint; expectedSeller?: string }
   | { type: "buy"; tokenId: bigint; price: bigint; expectedSeller?: string };
 
@@ -126,6 +261,7 @@ export interface UserRoles {
 
 export interface ChainTicketEvent {
   type: "listed" | "cancelled" | "sold" | "transfer" | "used" | "collectible_mode";
+  ticketEventId?: string;
   tokenId?: bigint;
   txHash?: string;
   blockNumber?: number;
@@ -148,6 +284,8 @@ export interface SystemState {
   maxPerWallet: bigint;
   paused: boolean;
   collectibleMode: boolean;
+  baseTokenURI?: string;
+  collectibleBaseURI?: string;
 }
 
 export interface TxResponseLike {
@@ -176,6 +314,7 @@ export interface ChainTicketClient {
   mintPrimary: () => Promise<TxResponseLike>;
   approveTicket: (tokenId: bigint) => Promise<TxResponseLike>;
   listTicket: (tokenId: bigint, price: bigint) => Promise<TxResponseLike>;
+  listTicketWithPermit?: (tokenId: bigint, price: bigint) => Promise<TxResponseLike>;
   cancelListing: (tokenId: bigint) => Promise<TxResponseLike>;
   buyTicket: (tokenId: bigint, price: bigint) => Promise<TxResponseLike>;
   getUserRoles?: (address: string) => Promise<UserRoles>;
