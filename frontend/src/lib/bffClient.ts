@@ -1,13 +1,24 @@
 import type {
   BackendHealthSnapshot,
   ChainTicketEvent,
+  CollectibleView,
+  EmbeddedWalletCodeRequest,
+  EmbeddedWalletSession,
+  FanProfile,
+  FanPerkView,
+  FanPassAttestation,
   OperationalActivity,
   OperationalRoleAssignment,
   OperationalSummary,
   EventDeployment,
   MarketStats,
+  MerchRedemptionView,
+  MerchSkuView,
   MarketplaceView,
+  SponsoredWalletActionRequest,
+  SponsoredWalletActionResponse,
   SystemState,
+  TicketCoverage,
   TicketTimelineEntry,
   TicketView,
 } from "../types/chainticket";
@@ -15,10 +26,14 @@ import type {
 type ListingSort = "price_asc" | "price_desc" | "recent";
 
 interface BffSystemPayload {
+  version?: "v1" | "v2";
   primaryPriceWei: string;
+  insurancePremiumWei?: string | null;
   maxSupply: string;
   totalMinted: string;
   maxPerWallet: string;
+  fanPassSupplyCap?: string | null;
+  fanPassMinted?: string | null;
   paused: boolean;
   collectibleMode: boolean;
   baseTokenURI?: string;
@@ -71,13 +86,25 @@ interface BffEventDeploymentPayload {
   ticketEventId: string;
   name: string;
   symbol: string;
+  version?: "v1" | "v2";
+  artistId?: string;
+  seriesId?: string;
   primaryPriceWei: string;
   maxSupply: string;
+  fanPassAllocationBps?: string;
+  artistRoyaltyBps?: string;
   treasury: string;
   admin: string;
   ticketNftAddress: string;
   marketplaceAddress: string;
   checkInRegistryAddress: string;
+  collectibleContract?: string;
+  fanScoreRegistry?: string;
+  fanFuelBank?: string;
+  insurancePool?: string;
+  oracleAdapter?: string;
+  merchStore?: string;
+  perkManager?: string;
   deploymentBlock: number;
   registeredAt: number;
   isDemoInspired?: boolean;
@@ -135,6 +162,130 @@ interface BffHealthPayload {
   }>;
 }
 
+interface BffFanProfilePayload {
+  ticketEventId: string;
+  address: string;
+  version: "v1" | "v2";
+  artistId?: string | null;
+  seriesId?: string | null;
+  reputationScore: string;
+  tierLevel: number;
+  tierLabel: FanProfile["tierLabel"];
+  fuelBalance: string;
+  artistAttendanceCount: string;
+  currentTicketCount: number;
+  listedTicketCount: number;
+  collectibleCount: string;
+}
+
+interface BffTicketCoveragePayload {
+  ticketEventId: string;
+  tokenId: string;
+  supported: boolean;
+  insured: boolean;
+  claimed: boolean;
+  claimable: boolean;
+  payoutBps: number;
+  weatherRoundId: string;
+  premiumPaidWei: string;
+  payoutAmountWei: string;
+  policyActive: boolean;
+  reportHash: string | null;
+}
+
+interface BffFanPassAttestationPayload {
+  ticketEventId: string;
+  address: string;
+  signer: string;
+  deadline: string;
+  signature: string;
+}
+
+interface BffCollectiblePayload {
+  collectibleId: string;
+  owner: string;
+  originFan: string;
+  sourceTicketId: string;
+  sourceTicketClass: number;
+  level: string;
+  tokenURI: string;
+}
+
+interface BffFanPerkPayload {
+  perkId: string;
+  artistKey: string;
+  minScore: string;
+  minAttendances: string;
+  fuelCost: string;
+  active: boolean;
+  metadataURI: string;
+  unlocked: boolean;
+  redeemedCount: number;
+  lastRedeemedTxHash: string | null;
+}
+
+interface BffMerchSkuPayload {
+  skuId: string;
+  price: string;
+  stock: string;
+  active: boolean;
+}
+
+interface BffMerchRedemptionPayload {
+  skuId: string;
+  twinId: string;
+  fan: string;
+  fuelCost: string;
+  txHash: string;
+  blockNumber: number;
+}
+
+interface BffEmbeddedWalletProviderPayload {
+  id: string;
+  label: string;
+  sponsoredActions: string[];
+}
+
+interface BffEmbeddedWalletCodePayload {
+  enabled: boolean;
+  email: string;
+  walletAddress: string;
+  expiresAt: number;
+  codeSent: boolean;
+  devCode: string | null;
+  provider: BffEmbeddedWalletProviderPayload;
+}
+
+interface BffEmbeddedWalletSessionPayload {
+  enabled: boolean;
+  session: {
+    email: string;
+    walletAddress: string;
+    expiresAt: number;
+  } | null;
+  provider: BffEmbeddedWalletProviderPayload | null;
+}
+
+interface BffEmbeddedWalletVerifyPayload {
+  enabled: boolean;
+  sessionToken: string;
+  session: {
+    email: string;
+    walletAddress: string;
+    expiresAt: number;
+  };
+  provider: BffEmbeddedWalletProviderPayload;
+}
+
+interface BffSponsoredWalletActionPayload {
+  ok: boolean;
+  ticketEventId: string;
+  action: SponsoredWalletActionRequest["action"];
+  txHash: string;
+  walletAddress: string;
+  sponsoredValueWei: string;
+}
+
 function toBigInt(value: string | null | undefined): bigint | null {
   if (value === null || value === undefined) {
     return null;
@@ -144,10 +295,14 @@ function toBigInt(value: string | null | undefined): bigint | null {
 
 function parseSystem(payload: BffSystemPayload): SystemState {
   return {
+    version: payload.version ?? "v1",
     primaryPrice: BigInt(payload.primaryPriceWei),
+    insurancePremium: toBigInt(payload.insurancePremiumWei) ?? undefined,
     maxSupply: BigInt(payload.maxSupply),
     totalMinted: BigInt(payload.totalMinted),
     maxPerWallet: BigInt(payload.maxPerWallet),
+    fanPassSupplyCap: toBigInt(payload.fanPassSupplyCap) ?? undefined,
+    fanPassMinted: toBigInt(payload.fanPassMinted) ?? undefined,
     paused: payload.paused,
     collectibleMode: payload.collectibleMode,
     baseTokenURI: payload.baseTokenURI ?? "",
@@ -210,13 +365,25 @@ function parseEvents(payload: BffEventDeploymentPayload[]): EventDeployment[] {
     ticketEventId: item.ticketEventId,
     name: item.name,
     symbol: item.symbol,
+    version: item.version,
+    artistId: item.artistId,
+    seriesId: item.seriesId,
     primaryPriceWei: item.primaryPriceWei,
     maxSupply: item.maxSupply,
+    fanPassAllocationBps: item.fanPassAllocationBps,
+    artistRoyaltyBps: item.artistRoyaltyBps,
     treasury: item.treasury,
     admin: item.admin,
     ticketNftAddress: item.ticketNftAddress,
     marketplaceAddress: item.marketplaceAddress,
     checkInRegistryAddress: item.checkInRegistryAddress,
+    collectibleContract: item.collectibleContract,
+    fanScoreRegistry: item.fanScoreRegistry,
+    fanFuelBank: item.fanFuelBank,
+    insurancePool: item.insurancePool,
+    oracleAdapter: item.oracleAdapter,
+    merchStore: item.merchStore,
+    perkManager: item.perkManager,
     deploymentBlock: item.deploymentBlock,
     registeredAt: item.registeredAt,
     isDemoInspired: item.isDemoInspired ?? false,
@@ -285,6 +452,148 @@ function parseHealth(payload: BffHealthPayload): BackendHealthSnapshot {
   };
 }
 
+function parseFanProfile(payload: BffFanProfilePayload): FanProfile {
+  return {
+    ticketEventId: payload.ticketEventId,
+    address: payload.address,
+    version: payload.version,
+    artistId: payload.artistId ?? null,
+    seriesId: payload.seriesId ?? null,
+    reputationScore: BigInt(payload.reputationScore),
+    tierLevel: payload.tierLevel,
+    tierLabel: payload.tierLabel,
+    fuelBalance: BigInt(payload.fuelBalance),
+    artistAttendanceCount: BigInt(payload.artistAttendanceCount),
+    currentTicketCount: payload.currentTicketCount,
+    listedTicketCount: payload.listedTicketCount,
+    collectibleCount: BigInt(payload.collectibleCount),
+  };
+}
+
+function parseCoverage(payload: BffTicketCoveragePayload): TicketCoverage {
+  return {
+    ticketEventId: payload.ticketEventId,
+    tokenId: BigInt(payload.tokenId),
+    supported: payload.supported,
+    insured: payload.insured,
+    claimed: payload.claimed,
+    claimable: payload.claimable,
+    payoutBps: payload.payoutBps,
+    weatherRoundId: BigInt(payload.weatherRoundId),
+    premiumPaid: BigInt(payload.premiumPaidWei),
+    payoutAmount: BigInt(payload.payoutAmountWei),
+    policyActive: payload.policyActive,
+    reportHash: payload.reportHash,
+  };
+}
+
+function parseFanPassAttestation(payload: BffFanPassAttestationPayload): FanPassAttestation {
+  return {
+    ticketEventId: payload.ticketEventId,
+    address: payload.address,
+    signer: payload.signer,
+    deadline: BigInt(payload.deadline),
+    signature: payload.signature,
+  };
+}
+
+function parseCollectibles(payload: BffCollectiblePayload[]): CollectibleView[] {
+  return payload.map((item) => ({
+    collectibleId: BigInt(item.collectibleId),
+    owner: item.owner,
+    originFan: item.originFan,
+    sourceTicketId: BigInt(item.sourceTicketId),
+    sourceTicketClass: item.sourceTicketClass,
+    level: BigInt(item.level),
+    tokenURI: item.tokenURI,
+  }));
+}
+
+function parseFanPerks(payload: BffFanPerkPayload[]): FanPerkView[] {
+  return payload.map((item) => ({
+    perkId: item.perkId,
+    artistKey: item.artistKey,
+    minScore: BigInt(item.minScore),
+    minAttendances: BigInt(item.minAttendances),
+    fuelCost: BigInt(item.fuelCost),
+    active: item.active,
+    metadataURI: item.metadataURI,
+    unlocked: item.unlocked,
+    redeemedCount: item.redeemedCount,
+    lastRedeemedTxHash: item.lastRedeemedTxHash,
+  }));
+}
+
+function parseMerchCatalog(payload: BffMerchSkuPayload[]): MerchSkuView[] {
+  return payload.map((item) => ({
+    skuId: item.skuId,
+    price: BigInt(item.price),
+    stock: BigInt(item.stock),
+    active: item.active,
+  }));
+}
+
+function parseMerchRedemptions(payload: BffMerchRedemptionPayload[]): MerchRedemptionView[] {
+  return payload.map((item) => ({
+    skuId: item.skuId,
+    twinId: BigInt(item.twinId),
+    fan: item.fan,
+    fuelCost: BigInt(item.fuelCost),
+    txHash: item.txHash,
+    blockNumber: item.blockNumber,
+  }));
+}
+
+function parseEmbeddedWalletCodeRequest(
+  payload: BffEmbeddedWalletCodePayload,
+): EmbeddedWalletCodeRequest {
+  return {
+    enabled: payload.enabled,
+    email: payload.email,
+    walletAddress: payload.walletAddress,
+    expiresAt: payload.expiresAt,
+    codeSent: payload.codeSent,
+    devCode: payload.devCode,
+    provider: {
+      id: payload.provider.id,
+      label: payload.provider.label,
+      sponsoredActions: [...payload.provider.sponsoredActions],
+    },
+  };
+}
+
+function parseEmbeddedWalletSession(
+  payload: BffEmbeddedWalletSessionPayload | BffEmbeddedWalletVerifyPayload,
+  sessionToken: string | null,
+): EmbeddedWalletSession | null {
+  if (!payload.session || !payload.provider || !sessionToken) {
+    return null;
+  }
+
+  return {
+    email: payload.session.email,
+    walletAddress: payload.session.walletAddress,
+    expiresAt: payload.session.expiresAt,
+    sessionToken,
+    providerId: payload.provider.id,
+    providerLabel: payload.provider.label,
+    sponsoredActions: [...payload.provider.sponsoredActions],
+  };
+}
+
+function parseSponsoredWalletAction(
+  payload: BffSponsoredWalletActionPayload,
+): SponsoredWalletActionResponse {
+  return {
+    ok: payload.ok,
+    ticketEventId: payload.ticketEventId,
+    action: payload.action,
+    txHash: payload.txHash,
+    walletAddress: payload.walletAddress,
+    sponsoredValue: BigInt(payload.sponsoredValueWei),
+  };
+}
+
 function buildQuery(params: Record<string, string | number | undefined>): string {
   const query = new URLSearchParams();
 
@@ -331,19 +640,37 @@ export class BffClient {
     this.baseUrl = baseUrl;
   }
 
-  private async fetchJson<T>(path: string, timeoutMs = 6500): Promise<T> {
+  private async fetchJson<T>(
+    path: string,
+    options: {
+      method?: "GET" | "POST";
+      body?: unknown;
+      bearerToken?: string | null;
+      timeoutMs?: number;
+    } = {},
+  ): Promise<T> {
     const controller = new AbortController();
+    const timeoutMs = options.timeoutMs ?? 6500;
     const timeoutId = window.setTimeout(() => {
       controller.abort();
     }, timeoutMs);
 
     try {
+      const headers: Record<string, string> = {
+        Accept: "application/json",
+      };
+      if (options.body !== undefined) {
+        headers["Content-Type"] = "application/json";
+      }
+      if (options.bearerToken) {
+        headers.Authorization = `Bearer ${options.bearerToken}`;
+      }
+
       const response = await fetch(`${this.baseUrl}${path}`, {
-        method: "GET",
+        method: options.method ?? "GET",
         cache: "no-store",
-        headers: {
-          Accept: "application/json",
-        },
+        headers,
+        body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
         signal: controller.signal,
       });
 
@@ -425,6 +752,122 @@ export class BffClient {
       recentActivity: BffOperationalActivityPayload[];
     }>(`/v1/ops/summary${buildQuery({ eventId })}`);
     return parseOperationalSummary(payload);
+  }
+
+  async getFanProfile(address: string, eventId?: string): Promise<FanProfile> {
+    const payload = await this.fetchJson<BffFanProfilePayload>(
+      `/v1/fans/${address}/profile${buildQuery({ eventId })}`,
+    );
+    return parseFanProfile(payload);
+  }
+
+  async getFanCollectibles(address: string, eventId?: string): Promise<CollectibleView[]> {
+    const payload = await this.fetchJson<{ items: BffCollectiblePayload[] }>(
+      `/v1/fans/${address}/collectibles${buildQuery({ eventId })}`,
+    );
+    return parseCollectibles(payload.items);
+  }
+
+  async getFanPerks(address: string, eventId?: string): Promise<FanPerkView[]> {
+    const payload = await this.fetchJson<{ items: BffFanPerkPayload[] }>(
+      `/v1/fans/${address}/perks${buildQuery({ eventId })}`,
+    );
+    return parseFanPerks(payload.items);
+  }
+
+  async getMerchCatalog(eventId?: string): Promise<MerchSkuView[]> {
+    const payload = await this.fetchJson<{ items: BffMerchSkuPayload[] }>(
+      `/v1/merch/catalog${buildQuery({ eventId })}`,
+    );
+    return parseMerchCatalog(payload.items);
+  }
+
+  async getFanMerchRedemptions(address: string, eventId?: string): Promise<MerchRedemptionView[]> {
+    const payload = await this.fetchJson<{ items: BffMerchRedemptionPayload[] }>(
+      `/v1/fans/${address}/merch-redemptions${buildQuery({ eventId })}`,
+    );
+    return parseMerchRedemptions(payload.items);
+  }
+
+  async getTicketCoverage(tokenId: bigint, eventId?: string): Promise<TicketCoverage> {
+    const payload = await this.fetchJson<BffTicketCoveragePayload>(
+      `/v1/tickets/${tokenId.toString()}/coverage${buildQuery({ eventId })}`,
+    );
+    return parseCoverage(payload);
+  }
+
+  async getFanPassAttestation(address: string, eventId?: string): Promise<FanPassAttestation> {
+    const payload = await this.fetchJson<BffFanPassAttestationPayload>(
+      `/v1/fans/${address}/fanpass-attestation${buildQuery({ eventId })}`,
+    );
+    return parseFanPassAttestation(payload);
+  }
+
+  async requestEmbeddedWalletCode(email: string): Promise<EmbeddedWalletCodeRequest> {
+    const payload = await this.fetchJson<BffEmbeddedWalletCodePayload>(
+      "/v1/embedded-wallet/request-code",
+      {
+        method: "POST",
+        body: { email },
+      },
+    );
+    return parseEmbeddedWalletCodeRequest(payload);
+  }
+
+  async verifyEmbeddedWalletCode(
+    email: string,
+    code: string,
+  ): Promise<EmbeddedWalletSession> {
+    const payload = await this.fetchJson<BffEmbeddedWalletVerifyPayload>(
+      "/v1/embedded-wallet/verify-code",
+      {
+        method: "POST",
+        body: { email, code },
+      },
+    );
+    const session = parseEmbeddedWalletSession(payload, payload.sessionToken);
+    if (!session) {
+      throw new Error("Embedded wallet verification did not return a session.");
+    }
+    return session;
+  }
+
+  async getEmbeddedWalletSession(
+    sessionToken: string,
+  ): Promise<EmbeddedWalletSession | null> {
+    const payload = await this.fetchJson<BffEmbeddedWalletSessionPayload>(
+      "/v1/embedded-wallet/session",
+      {
+        bearerToken: sessionToken,
+      },
+    );
+    return parseEmbeddedWalletSession(payload, sessionToken);
+  }
+
+  async runSponsoredWalletAction(
+    sessionToken: string,
+    action: SponsoredWalletActionRequest,
+  ): Promise<SponsoredWalletActionResponse> {
+    const body =
+      action.action === "claim_insurance"
+        ? {
+            eventId: action.eventId,
+            action: action.action,
+            tokenId: action.tokenId.toString(),
+          }
+        : action;
+
+    const payload = await this.fetchJson<BffSponsoredWalletActionPayload>(
+      "/v1/embedded-wallet/actions",
+      {
+        method: "POST",
+        bearerToken: sessionToken,
+        body,
+        timeoutMs: 20_000,
+      },
+    );
+
+    return parseSponsoredWalletAction(payload);
   }
 
   watchEvents(

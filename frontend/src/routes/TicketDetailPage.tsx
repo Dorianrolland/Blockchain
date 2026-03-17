@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { Contract, JsonRpcProvider } from "ethers";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 
@@ -19,6 +20,10 @@ import { TicketMedia } from "../components/tickets/TicketMedia";
 import { TicketQrPanel } from "../components/tickets/TicketQrPanel";
 import { IndexedReadinessBanner } from "../components/layout/IndexedReadinessBanner";
 import { useI18n } from "../i18n/I18nContext";
+import { createBffClient } from "../lib/bffClient";
+import { getCollectibleByIdFromChain } from "../lib/collectibles";
+import { TICKET_NFT_ABI } from "../lib/abi";
+import { mapEthersError } from "../lib/errors";
 import { formatAddress, formatPol, formatTimestamp } from "../lib/format";
 import { buildTokenUriFromBase } from "../lib/ticketMetadata";
 import { parseTokenIdInput, timelineLabel } from "../lib/timeline";
@@ -85,6 +90,7 @@ export function TicketDetailPage() {
     fetchTicketTimeline,
     contractConfig,
     indexedReadsAvailable,
+    runtimeConfig,
     tickets,
     systemState,
     selectedEventName,
@@ -92,9 +98,16 @@ export function TicketDetailPage() {
     toggleWatch,
     availableEvents,
     selectedEventId,
+    walletAddress,
+    preparePreview,
+    setErrorMessage,
   } = useAppState();
   const selectedEvent =
-    availableEvents.find((event) => event.ticketEventId === selectedEventId) ?? null;
+    (availableEvents ?? []).find((event) => event.ticketEventId === selectedEventId) ?? null;
+  const bffClient = useMemo(
+    () => createBffClient(runtimeConfig?.apiBaseUrl ?? null),
+    [runtimeConfig?.apiBaseUrl],
+  );
   const tokenId = tokenIdParam ? parseTokenIdInput(tokenIdParam) : null;
   const ticket = useMemo(
     () =>
@@ -103,48 +116,9 @@ export function TicketDetailPage() {
         : tickets.find((candidate) => candidate.tokenId === tokenId) ?? null,
     [tickets, tokenId],
   );
-  const liveTokenUri =
-    tokenId !== null
-      ? buildTokenUriFromBase(systemState?.baseTokenURI, tokenId) ??
-        (!systemState?.collectibleMode ? ticket?.tokenURI ?? null : null)
-      : null;
-  const collectibleTokenUri =
-    tokenId !== null
-      ? buildTokenUriFromBase(systemState?.collectibleBaseURI, tokenId) ??
-        (systemState?.collectibleMode ? ticket?.tokenURI ?? null : null)
-      : null;
-  const activeTokenUri =
-    ticket?.tokenURI ??
-    (systemState?.collectibleMode
-      ? collectibleTokenUri ?? liveTokenUri ?? ""
-      : liveTokenUri ?? collectibleTokenUri ?? "");
-  const previewDescriptors = useMemo(
-    () =>
-      tokenId !== null && activeTokenUri
-        ? [
-            {
-              key: tokenId.toString(),
-              tokenId,
-              ticketEventId: contractConfig.eventId,
-              activeTokenUri,
-              activeView: systemState?.collectibleMode ? ("collectible" as const) : ("live" as const),
-              liveTokenUri,
-              collectibleTokenUri,
-            },
-          ]
-        : [],
-    [
-      activeTokenUri,
-      collectibleTokenUri,
-      contractConfig.eventId,
-      liveTokenUri,
-      systemState?.collectibleMode,
-      tokenId,
-    ],
-  );
-  const previews = useTicketPreviewCollection(previewDescriptors);
-  const preview = tokenId !== null ? previews.get(tokenId.toString()) : null;
   const requestedViewParam = searchParams.get("view");
+  const collectibleIdParam = searchParams.get("collectibleId");
+  const collectibleId = collectibleIdParam ? parseTokenIdInput(collectibleIdParam) : null;
   const displayView: "live" | "collectible" =
     requestedViewParam === "collectible"
       ? "collectible"
@@ -157,16 +131,6 @@ export function TicketDetailPage() {
     tokenId !== null
       ? `${contractConfig.eventId ?? "main-event"}:${tokenId.toString()}`
       : null;
-  const collectibleReady = Boolean(preview?.collectibleTokenUri) && !systemState?.collectibleMode;
-  const stateLabel =
-    ticket && tokenId !== null
-      ? getTicketStateLabel({
-          locale,
-          ticket,
-          collectibleMode: Boolean(systemState?.collectibleMode),
-          collectibleReady,
-        })
-      : null;
 
   const timelineQuery = useQuery({
     queryKey: ["ticket-timeline", tokenId?.toString() ?? "none"],
@@ -178,6 +142,124 @@ export function TicketDetailPage() {
       return fetchTicketTimeline(tokenId);
     },
   });
+  const coverageQuery = useQuery({
+    queryKey: [
+      "ticket-coverage",
+      selectedEventId,
+      tokenId?.toString() ?? "none",
+      runtimeConfig?.apiBaseUrl ?? "no-bff",
+    ],
+    enabled: tokenId !== null && (selectedEvent?.version ?? "v1") === "v2",
+    retry: 1,
+    queryFn: async () => {
+      if (tokenId === null) {
+        throw new Error("Coverage unavailable without a token id.");
+      }
+
+      if (bffClient) {
+        try {
+          return await bffClient.getTicketCoverage(tokenId, selectedEventId);
+        } catch {
+          // Fall back to direct RPC reads for V2 coverage.
+        }
+      }
+
+      const provider = new JsonRpcProvider(contractConfig.rpcUrl, contractConfig.chainId);
+      const ticketContract = new Contract(contractConfig.ticketNftAddress, TICKET_NFT_ABI, provider);
+      const coverage = await ticketContract.coverageOf(tokenId);
+
+      return {
+        ticketEventId: selectedEventId,
+        tokenId,
+        supported: true,
+        insured: Boolean(coverage[0]),
+        claimed: Boolean(coverage[1]),
+        claimable: Boolean(coverage[2]),
+        payoutBps: Number(coverage[3] ?? 0),
+        weatherRoundId: BigInt(coverage[4] ?? 0),
+        premiumPaid: BigInt(coverage[5] ?? 0),
+        payoutAmount: BigInt(coverage[6] ?? 0),
+        policyActive: Boolean(coverage[2]) || Number(coverage[3] ?? 0) > 0,
+        reportHash: null,
+      };
+    },
+  });
+  const collectibleQuery = useQuery({
+    queryKey: [
+      "collectible-detail",
+      selectedEventId,
+      collectibleId?.toString() ?? "none",
+      selectedEvent?.collectibleContract ?? "no-collectible",
+    ],
+    enabled:
+      collectibleId !== null &&
+      (selectedEvent?.version ?? "v1") === "v2" &&
+      Boolean(selectedEvent?.collectibleContract),
+    retry: 1,
+    queryFn: async () => {
+      if (collectibleId === null) {
+        throw new Error("Collectible unavailable without a collectible id.");
+      }
+
+      return getCollectibleByIdFromChain({
+        rpcUrl: contractConfig.rpcUrl,
+        chainId: contractConfig.chainId,
+        collectibleContractAddress: selectedEvent!.collectibleContract!,
+        collectibleId,
+      });
+    },
+  });
+  const liveTokenUri =
+    tokenId !== null
+      ? buildTokenUriFromBase(systemState?.baseTokenURI, tokenId) ??
+        (!systemState?.collectibleMode ? ticket?.tokenURI ?? null : null)
+      : null;
+  const collectibleTokenUri =
+    collectibleQuery.data?.tokenURI ??
+    (tokenId !== null
+      ? buildTokenUriFromBase(systemState?.collectibleBaseURI, tokenId) ??
+        (systemState?.collectibleMode ? ticket?.tokenURI ?? null : null)
+      : null);
+  const activeTokenUri =
+    displayView === "collectible"
+      ? collectibleTokenUri ?? ticket?.tokenURI ?? liveTokenUri ?? ""
+      : ticket?.tokenURI ?? liveTokenUri ?? collectibleTokenUri ?? "";
+  const previewDescriptors = useMemo(
+    () =>
+      tokenId !== null && activeTokenUri
+        ? [
+            {
+              key: tokenId.toString(),
+              tokenId,
+              ticketEventId: contractConfig.eventId,
+              activeTokenUri,
+              activeView: displayView,
+              liveTokenUri,
+              collectibleTokenUri,
+            },
+          ]
+        : [],
+    [
+      activeTokenUri,
+      collectibleTokenUri,
+      contractConfig.eventId,
+      displayView,
+      liveTokenUri,
+      tokenId,
+    ],
+  );
+  const previews = useTicketPreviewCollection(previewDescriptors);
+  const preview = tokenId !== null ? previews.get(tokenId.toString()) : null;
+  const collectibleReady = Boolean(preview?.collectibleTokenUri) && !systemState?.collectibleMode;
+  const stateLabel =
+    ticket && tokenId !== null
+      ? getTicketStateLabel({
+          locale,
+          ticket,
+          collectibleMode: Boolean(systemState?.collectibleMode),
+          collectibleReady,
+        })
+      : null;
 
   const grouped = useMemo(() => {
     const groups = new Map<string, TicketTimelineEntry[]>();
@@ -199,7 +281,9 @@ export function TicketDetailPage() {
       ? preview?.collectibleMedia ?? preview?.activeMedia
       : preview?.liveMedia ?? preview?.activeMedia;
   const selectedQrValue =
-    displayView === "collectible"
+    collectibleId !== null && displayView === "collectible"
+      ? null
+      : displayView === "collectible"
       ? preview?.collectibleQrValue ?? preview?.liveQrValue
       : preview?.liveQrValue ?? preview?.collectibleQrValue;
   const copy =
@@ -239,6 +323,23 @@ export function TicketDetailPage() {
           timelineLoadingTitle: "Chargement de la timeline",
           lifecycleTitle: "Preuve de cycle de vie",
           lifecycleSubtitle: "Mint, revente, usage et metadonnees regroupes par phase pour ne pas surcharger le hero.",
+          insuranceTitle: "Assurance meteo",
+          insuranceInactive: "Non assure",
+          insuranceActive: "Assure",
+          insuranceClaimable: "Remboursement ouvert",
+          insuranceClaimed: "Rembourse",
+          premiumLabel: "Prime",
+          payoutLabel: "Remboursement potentiel",
+          roundLabel: "Round oracle",
+          policyLabel: "Police",
+          claimInsurance: "Declarer le remboursement",
+          claimInsuranceDescription:
+            "Soumettre le claim on-chain sur le pool d'assurance quand la couverture meteo est ouverte.",
+          claimInsuranceHelp:
+            "Verifie la propriete du billet, la fenetre de remboursement et tente de verser le payout au wallet courant.",
+          collectibleIdLabel: "Collectible",
+          sourceTicketLabel: "Ticket source",
+          collectibleLevelLabel: "Niveau",
         }
       : {
           invalidToken: "Invalid token",
@@ -274,7 +375,59 @@ export function TicketDetailPage() {
           timelineLoadingTitle: "Loading timeline",
           lifecycleTitle: "Lifecycle proof",
           lifecycleSubtitle: "Mint, resale, usage, and metadata events grouped by phase instead of crowding the hero.",
+          insuranceTitle: "Weather insurance",
+          insuranceInactive: "Uninsured",
+          insuranceActive: "Insured",
+          insuranceClaimable: "Claimable",
+          insuranceClaimed: "Claimed",
+          premiumLabel: "Premium",
+          payoutLabel: "Potential payout",
+          roundLabel: "Oracle round",
+          policyLabel: "Policy",
+          claimInsurance: "Claim payout",
+          claimInsuranceDescription:
+            "Submit the on-chain insurance claim when the weather coverage window is open.",
+          claimInsuranceHelp:
+            "Checks ticket ownership, verifies the open payout window, and attempts to send the insurance payout to the connected wallet.",
+          collectibleIdLabel: "Collectible",
+          sourceTicketLabel: "Source ticket",
+          collectibleLevelLabel: "Level",
         };
+
+  const onClaimInsurance = async () => {
+    if (tokenId === null) {
+      return;
+    }
+
+    try {
+      await preparePreview({
+        label: copy.claimInsurance,
+        description: copy.claimInsuranceDescription,
+        action: { type: "claim_insurance", tokenId },
+        details: [
+          locale === "fr"
+            ? "Controle que le billet est assure et que le payout oracle est actif."
+            : "Checks that the ticket is insured and the oracle payout window is active.",
+          locale === "fr"
+            ? "Verifie que le wallet connecte est bien le proprietaire du billet."
+            : "Verifies the connected wallet is the current ticket owner.",
+          copy.claimInsuranceHelp,
+        ],
+        run: async (client) => {
+          if (!client.claimInsurance) {
+            throw new Error(
+              locale === "fr"
+                ? "Le claim assurance est indisponible dans ce client."
+                : "Insurance claim is unavailable in this client.",
+            );
+          }
+          return client.claimInsurance(tokenId);
+        },
+      });
+    } catch (error) {
+      setErrorMessage(mapEthersError(error));
+    }
+  };
 
   if (tokenId === null) {
     return (
@@ -287,7 +440,10 @@ export function TicketDetailPage() {
   return (
     <div className="route-stack ticket-detail-route detail-vault-route" data-testid="ticket-detail-page">
       <PageHeader
-        title={`${selectedMetadata?.name ?? "Ticket pass"} #${tokenId.toString()}`}
+        title={`${
+          selectedMetadata?.name ??
+          (collectibleId !== null ? "Collectible souvenir" : "Ticket pass")
+        } #${(collectibleId ?? tokenId).toString()}`}
         subtitle={copy.subtitle}
         workspace="tickets"
         context={
@@ -295,6 +451,11 @@ export function TicketDetailPage() {
             {stateLabel ? <Tag tone={ticket?.used ? "warning" : ticket?.listed ? "info" : "success"}>{stateLabel}</Tag> : null}
             {systemState?.collectibleMode ? <Tag tone="info">{copy.collectibleLive}</Tag> : null}
             {collectibleReady ? <Tag tone="success">{copy.collectiblePreview}</Tag> : null}
+            {collectibleQuery.data ? (
+              <Tag tone="info">
+                {copy.collectibleLevelLabel} {collectibleQuery.data.level.toString()}
+              </Tag>
+            ) : null}
             {ticket?.listed ? <Tag tone="warning">{copy.listedOnMarket}</Tag> : null}
           </div>
         }
@@ -356,11 +517,18 @@ export function TicketDetailPage() {
                     kind: "fallback",
                     src: null,
                     posterSrc: null,
-                    alt: `Ticket #${tokenId.toString()}`,
+                    alt:
+                      collectibleId !== null
+                        ? `Collectible #${collectibleId.toString()}`
+                        : `Ticket #${tokenId.toString()}`,
                   }
                 }
                 fallbackTitle={selectedEventName || "ChainTicket admission"}
-                fallbackSubtitle={`Token #${tokenId.toString()}`}
+                fallbackSubtitle={
+                  collectibleId !== null
+                    ? `Collectible #${collectibleId.toString()}`
+                    : `Token #${tokenId.toString()}`
+                }
                 className="ticket-detail-media"
               />
               <div className="ticket-detail-media-meta">
@@ -385,7 +553,25 @@ export function TicketDetailPage() {
                 <InfoList
                   entries={[
                     { label: copy.tokenLabel, value: `#${tokenId.toString()}` },
-                    { label: copy.ownerLabel, value: ticket ? formatAddress(ticket.owner) : "Timeline view" },
+                    {
+                      label: copy.collectibleIdLabel,
+                      value:
+                        collectibleId !== null ? `#${collectibleId.toString()}` : "-",
+                    },
+                    {
+                      label: copy.ownerLabel,
+                      value: collectibleQuery.data
+                        ? formatAddress(collectibleQuery.data.owner)
+                        : ticket
+                          ? formatAddress(ticket.owner)
+                          : "Timeline view",
+                    },
+                    {
+                      label: copy.sourceTicketLabel,
+                      value: collectibleQuery.data
+                        ? `#${collectibleQuery.data.sourceTicketId.toString()}`
+                        : `#${tokenId.toString()}`,
+                    },
                     {
                       label: copy.listingLabel,
                       value:
@@ -395,11 +581,17 @@ export function TicketDetailPage() {
                     },
                     {
                       label: copy.collectibleStatus,
-                      value: systemState?.collectibleMode ? copy.active : copy.standby,
+                      value:
+                        displayView === "collectible" || systemState?.collectibleMode
+                          ? copy.active
+                          : copy.standby,
                     },
                     {
                       label: copy.statusLabel,
-                      value: stateLabel ?? "-",
+                      value:
+                        collectibleQuery.data
+                          ? `${copy.collectibleMode} L${collectibleQuery.data.level.toString()}`
+                          : stateLabel ?? "-",
                     },
                   ]}
                 />
@@ -416,6 +608,52 @@ export function TicketDetailPage() {
                   </Link>
                 </div>
               </Card>
+
+              {coverageQuery.data?.supported ? (
+                <Card className="ticket-detail-facts" surface="glass">
+                  <div className="inline-actions">
+                    <h3>{copy.insuranceTitle}</h3>
+                    <Tag
+                      tone={
+                        coverageQuery.data.claimed
+                          ? "info"
+                          : coverageQuery.data.claimable
+                            ? "success"
+                            : coverageQuery.data.insured
+                              ? "warning"
+                              : "default"
+                      }
+                    >
+                      {coverageQuery.data.claimed
+                        ? copy.insuranceClaimed
+                        : coverageQuery.data.claimable
+                          ? copy.insuranceClaimable
+                          : coverageQuery.data.insured
+                            ? copy.insuranceActive
+                            : copy.insuranceInactive}
+                    </Tag>
+                  </div>
+                  <InfoList
+                    entries={[
+                      { label: copy.policyLabel, value: coverageQuery.data.policyActive ? copy.active : copy.standby },
+                      { label: copy.premiumLabel, value: `${formatPol(coverageQuery.data.premiumPaid)} POL` },
+                      { label: copy.payoutLabel, value: `${formatPol(coverageQuery.data.payoutAmount)} POL` },
+                      { label: copy.roundLabel, value: coverageQuery.data.weatherRoundId.toString() },
+                    ]}
+                  />
+                  {coverageQuery.data.claimable && walletAddress ? (
+                    <div className="ticket-detail-side-actions">
+                      <button
+                        type="button"
+                        className="primary"
+                        onClick={() => void onClaimInsurance()}
+                      >
+                        {copy.claimInsurance}
+                      </button>
+                    </div>
+                  ) : null}
+                </Card>
+              ) : null}
             </div>
           </div>
 

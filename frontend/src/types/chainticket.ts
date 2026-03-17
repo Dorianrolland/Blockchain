@@ -4,24 +4,41 @@ export interface ContractConfig {
   rpcUrl: string;
   explorerTxBaseUrl: string;
   deploymentBlock: number;
+  version?: "v1" | "v2";
   eventId?: string;
   eventName?: string;
   ticketNftAddress: string;
   marketplaceAddress: string;
   checkInRegistryAddress: string;
+  fanFuelBankAddress?: string;
+  merchStoreAddress?: string;
+  insurancePoolAddress?: string;
+  perkManagerAddress?: string;
 }
 
 export interface EventDeployment {
   ticketEventId: string;
   name: string;
   symbol: string;
+  version?: "v1" | "v2";
+  artistId?: string;
+  seriesId?: string;
   primaryPriceWei: string;
   maxSupply: string;
+  fanPassAllocationBps?: string;
+  artistRoyaltyBps?: string;
   treasury: string;
   admin: string;
   ticketNftAddress: string;
   marketplaceAddress: string;
   checkInRegistryAddress: string;
+  collectibleContract?: string;
+  fanScoreRegistry?: string;
+  fanFuelBank?: string;
+  insurancePool?: string;
+  oracleAdapter?: string;
+  merchStore?: string;
+  perkManager?: string;
   deploymentBlock: number;
   registeredAt: number;
   isDemoInspired?: boolean;
@@ -86,6 +103,8 @@ export interface RuntimeConfig {
   governanceTimelockAddress: string | null;
   governanceMinDelaySeconds: number;
   governancePortalUrl: string | null;
+  embeddedWalletEnabled: boolean;
+  embeddedWalletLabel: string;
 }
 
 export type WorkspaceKey = "explore" | "marketplace" | "tickets" | "organizer";
@@ -136,10 +155,53 @@ export interface RouteGuideMeta {
 export interface WalletProviderInfo {
   id: string;
   name: string;
+  kind: "injected" | "embedded";
   icon?: string;
   rdns?: string;
   isMetaMask: boolean;
-  provider: EthereumProvider;
+  provider?: EthereumProvider;
+  description?: string;
+  sponsoredActions?: string[];
+}
+
+export interface EmbeddedWalletCodeRequest {
+  enabled: boolean;
+  email: string;
+  walletAddress: string;
+  expiresAt: number;
+  codeSent: boolean;
+  devCode: string | null;
+  provider: {
+    id: string;
+    label: string;
+    sponsoredActions: string[];
+  };
+}
+
+export interface EmbeddedWalletSession {
+  email: string;
+  walletAddress: string;
+  expiresAt: number;
+  sessionToken: string;
+  providerId: string;
+  providerLabel: string;
+  sponsoredActions: string[];
+}
+
+export type SponsoredWalletActionRequest =
+  | { eventId?: string; action: "mint_standard"; insured: boolean }
+  | { eventId?: string; action: "mint_fanpass"; insured: boolean }
+  | { eventId?: string; action: "claim_insurance"; tokenId: bigint }
+  | { eventId?: string; action: "redeem_perk"; perkId: string }
+  | { eventId?: string; action: "redeem_merch"; skuId: string };
+
+export interface SponsoredWalletActionResponse {
+  ok: boolean;
+  ticketEventId: string;
+  action: SponsoredWalletActionRequest["action"];
+  txHash: string;
+  walletAddress: string;
+  sponsoredValue: bigint;
 }
 
 export interface TicketView {
@@ -210,13 +272,68 @@ export interface ListingHealth {
   reason?: string;
 }
 
+export interface FanPassAttestation {
+  ticketEventId: string;
+  address: string;
+  signer: string;
+  deadline: bigint;
+  signature: string;
+}
+
+export interface CollectibleView {
+  collectibleId: bigint;
+  owner: string;
+  originFan: string;
+  sourceTicketId: bigint;
+  sourceTicketClass: number;
+  level: bigint;
+  tokenURI: string;
+}
+
+export interface MerchSkuView {
+  skuId: string;
+  price: bigint;
+  stock: bigint;
+  active: boolean;
+}
+
+export interface MerchRedemptionView {
+  skuId: string;
+  twinId: bigint;
+  fan: string;
+  fuelCost: bigint;
+  txHash: string;
+  blockNumber: number;
+}
+
+export interface FanPerkView {
+  perkId: string;
+  artistKey: string;
+  minScore: bigint;
+  minAttendances: bigint;
+  fuelCost: bigint;
+  active: boolean;
+  metadataURI: string;
+  unlocked: boolean;
+  redeemedCount: number;
+  lastRedeemedTxHash: string | null;
+}
+
 export type PreflightAction =
   | { type: "mint" }
+  | { type: "mint_standard"; insured: boolean }
+  | { type: "mint_fanpass"; insured: boolean; deadline: bigint; signature: string }
+  | { type: "checkin_mark_used"; tokenId: bigint }
+  | { type: "checkin_transform"; tokenId: bigint }
+  | { type: "claim_insurance"; tokenId: bigint }
+  | { type: "redeem_perk"; perkId: string }
+  | { type: "redeem_merch"; skuId: string }
   | { type: "approve"; tokenId: bigint }
   | { type: "list"; tokenId: bigint; price: bigint }
   | { type: "list_with_permit"; tokenId: bigint; price: bigint }
   | { type: "cancel"; tokenId: bigint; expectedSeller?: string }
-  | { type: "buy"; tokenId: bigint; price: bigint; expectedSeller?: string };
+  | { type: "buy"; tokenId: bigint; price: bigint; expectedSeller?: string }
+  | { type: "organizer_buyback"; tokenId: bigint };
 
 export interface PreflightResult {
   action: PreflightAction["type"];
@@ -266,6 +383,7 @@ export interface MarketStats {
 
 export interface UserRoles {
   isAdmin: boolean;
+  isBuybackOperator: boolean;
   isScannerAdmin: boolean;
   isPauser: boolean;
   isScanner: boolean;
@@ -296,8 +414,43 @@ export interface SystemState {
   maxPerWallet: bigint;
   paused: boolean;
   collectibleMode: boolean;
+  version?: "v1" | "v2";
+  insurancePremium?: bigint;
+  fanPassSupplyCap?: bigint;
+  fanPassMinted?: bigint;
   baseTokenURI?: string;
   collectibleBaseURI?: string;
+}
+
+export interface FanProfile {
+  ticketEventId: string;
+  address: string;
+  version: "v1" | "v2";
+  artistId?: string | null;
+  seriesId?: string | null;
+  reputationScore: bigint;
+  tierLevel: number;
+  tierLabel: "base" | "silver" | "gold" | "platinum";
+  fuelBalance: bigint;
+  artistAttendanceCount: bigint;
+  currentTicketCount: number;
+  listedTicketCount: number;
+  collectibleCount: bigint;
+}
+
+export interface TicketCoverage {
+  ticketEventId: string;
+  tokenId: bigint;
+  supported: boolean;
+  insured: boolean;
+  claimed: boolean;
+  claimable: boolean;
+  payoutBps: number;
+  weatherRoundId: bigint;
+  premiumPaid: bigint;
+  payoutAmount: bigint;
+  policyActive: boolean;
+  reportHash: string | null;
 }
 
 export interface TxResponseLike {
@@ -324,13 +477,20 @@ export interface ChainTicketClient {
   preflightAction: (action: PreflightAction) => Promise<PreflightResult>;
   watchEvents: (onEvent: (event: ChainTicketEvent) => void) => () => void;
   mintPrimary: () => Promise<TxResponseLike>;
+  mintStandardTicket?: (insured: boolean) => Promise<TxResponseLike>;
+  mintFanPassTicket?: (attestation: FanPassAttestation, insured: boolean) => Promise<TxResponseLike>;
   approveTicket: (tokenId: bigint) => Promise<TxResponseLike>;
   listTicket: (tokenId: bigint, price: bigint) => Promise<TxResponseLike>;
   listTicketWithPermit?: (tokenId: bigint, price: bigint) => Promise<TxResponseLike>;
   cancelListing: (tokenId: bigint) => Promise<TxResponseLike>;
   buyTicket: (tokenId: bigint, price: bigint) => Promise<TxResponseLike>;
+  organizerBuyback?: (tokenId: bigint) => Promise<TxResponseLike>;
+  claimInsurance?: (tokenId: bigint) => Promise<TxResponseLike>;
+  redeemPerk?: (perkId: string) => Promise<TxResponseLike>;
+  redeemMerch?: (skuId: string) => Promise<TxResponseLike>;
   getUserRoles?: (address: string) => Promise<UserRoles>;
   markTicketUsed?: (tokenId: bigint) => Promise<TxResponseLike>;
+  checkInToCollectible?: (tokenId: bigint) => Promise<TxResponseLike>;
   grantScannerRole?: (account: string) => Promise<TxResponseLike>;
   revokeScannerRole?: (account: string) => Promise<TxResponseLike>;
   pauseSystem?: () => Promise<TxResponseLike>;

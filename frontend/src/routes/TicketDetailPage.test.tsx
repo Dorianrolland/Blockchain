@@ -2,14 +2,24 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { I18nProvider } from "../i18n/I18nContext";
 import { TicketDetailPage } from "./TicketDetailPage";
 
 const useAppStateMock = vi.fn();
+const getCollectibleByIdFromChainMock = vi.fn();
+const getTicketCoverageMock = vi.fn();
 vi.mock("../state/useAppState", () => ({
   useAppState: () => useAppStateMock(),
+}));
+vi.mock("../lib/collectibles", () => ({
+  getCollectibleByIdFromChain: (...args: unknown[]) => getCollectibleByIdFromChainMock(...args),
+}));
+vi.mock("../lib/bffClient", () => ({
+  createBffClient: () => ({
+    getTicketCoverage: (...args: unknown[]) => getTicketCoverageMock(...args),
+  }),
 }));
 
 function makeAppState(overrides: Record<string, unknown> = {}) {
@@ -75,11 +85,33 @@ function makeAppState(overrides: Record<string, unknown> = {}) {
     selectedEventId: "main-event",
     watchlist: new Set<string>(),
     toggleWatch: vi.fn(),
+    walletAddress: "0x00000000000000000000000000000000000000AA",
+    preparePreview: vi.fn(),
+    setErrorMessage: vi.fn(),
     ...overrides,
   };
 }
 
 describe("TicketDetailPage", () => {
+  beforeEach(() => {
+    getCollectibleByIdFromChainMock.mockReset();
+    getTicketCoverageMock.mockReset();
+    getTicketCoverageMock.mockResolvedValue({
+      ticketEventId: "main-event",
+      tokenId: 7n,
+      supported: false,
+      insured: false,
+      claimed: false,
+      claimable: false,
+      payoutBps: 0,
+      weatherRoundId: 0n,
+      premiumPaid: 0n,
+      payoutAmount: 0n,
+      policyActive: false,
+      reportHash: null,
+    });
+  });
+
   it("renders the pass hero, collectible toggle, and QR panel", async () => {
     window.localStorage.setItem("chainticket.language", "en");
     useAppStateMock.mockReturnValue(makeAppState());
@@ -108,5 +140,130 @@ describe("TicketDetailPage", () => {
     });
 
     expect(screen.getByRole("heading", { name: /Lifecycle proof/i })).toBeInTheDocument();
+  });
+
+  it("renders collectible detail facts when opened from a souvenir link", async () => {
+    window.localStorage.setItem("chainticket.language", "en");
+    getCollectibleByIdFromChainMock.mockResolvedValue({
+      collectibleId: 19n,
+      owner: "0x00000000000000000000000000000000000000AA",
+      originFan: "0x00000000000000000000000000000000000000AA",
+      sourceTicketId: 7n,
+      sourceTicketClass: 0,
+      level: 3n,
+      tokenURI: "ipfs://ticket/collectible/19.json",
+    });
+    useAppStateMock.mockReturnValue(
+      makeAppState({
+        availableEvents: [
+          {
+            ticketEventId: "main-event",
+            name: "Paris Finals",
+            symbol: "PF26",
+            version: "v2",
+            primaryPriceWei: "100000000000000000",
+            maxSupply: "100",
+            treasury: "0x0000000000000000000000000000000000000001",
+            admin: "0x0000000000000000000000000000000000000002",
+            ticketNftAddress: "0x0000000000000000000000000000000000000003",
+            marketplaceAddress: "0x0000000000000000000000000000000000000004",
+            checkInRegistryAddress: "0x0000000000000000000000000000000000000005",
+            collectibleContract: "0x0000000000000000000000000000000000000006",
+            deploymentBlock: 100,
+            registeredAt: 1700000000,
+          },
+        ],
+      }),
+    );
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <I18nProvider>
+          <MemoryRouter initialEntries={["/app/tickets/7?view=collectible&collectibleId=19"]}>
+            <Routes>
+              <Route path="/app/tickets/:tokenId" element={<TicketDetailPage />} />
+            </Routes>
+          </MemoryRouter>
+        </I18nProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole("heading", { name: /Collectible souvenir #19/i })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(getCollectibleByIdFromChainMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          collectibleContractAddress: "0x0000000000000000000000000000000000000006",
+          collectibleId: 19n,
+        }),
+      );
+    });
+    expect(screen.queryByText(/Mobile entry QR/i)).not.toBeInTheDocument();
+    expect(screen.getByText("Source ticket")).toBeInTheDocument();
+    expect(screen.getByText("#19")).toBeInTheDocument();
+    expect(screen.getAllByText("#7").length).toBeGreaterThan(0);
+  });
+
+  it("opens an insurance-claim preview when the ticket coverage is claimable", async () => {
+    window.localStorage.setItem("chainticket.language", "en");
+    getTicketCoverageMock.mockResolvedValue({
+      ticketEventId: "main-event",
+      tokenId: 7n,
+      supported: true,
+      insured: true,
+      claimed: false,
+      claimable: true,
+      payoutBps: 5000,
+      weatherRoundId: 77n,
+      premiumPaid: 10000000000000000n,
+      payoutAmount: 50000000000000000n,
+      policyActive: true,
+      reportHash: null,
+    });
+    const appState = makeAppState({
+      availableEvents: [
+        {
+          ticketEventId: "main-event",
+          name: "Paris Finals",
+          symbol: "PF26",
+          version: "v2",
+          primaryPriceWei: "100000000000000000",
+          maxSupply: "100",
+          treasury: "0x0000000000000000000000000000000000000001",
+          admin: "0x0000000000000000000000000000000000000002",
+          ticketNftAddress: "0x0000000000000000000000000000000000000003",
+          marketplaceAddress: "0x0000000000000000000000000000000000000004",
+          checkInRegistryAddress: "0x0000000000000000000000000000000000000005",
+          collectibleContract: "0x0000000000000000000000000000000000000006",
+          insurancePool: "0x0000000000000000000000000000000000000007",
+          deploymentBlock: 100,
+          registeredAt: 1700000000,
+        },
+      ],
+    });
+    useAppStateMock.mockReturnValue(appState);
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <I18nProvider>
+          <MemoryRouter initialEntries={["/app/tickets/7"]}>
+            <Routes>
+              <Route path="/app/tickets/:tokenId" element={<TicketDetailPage />} />
+            </Routes>
+          </MemoryRouter>
+        </I18nProvider>
+      </QueryClientProvider>,
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "Claim payout" }));
+
+    expect(appState.preparePreview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        label: "Claim payout",
+        action: {
+          type: "claim_insurance",
+          tokenId: 7n,
+        },
+      }),
+    );
   });
 });

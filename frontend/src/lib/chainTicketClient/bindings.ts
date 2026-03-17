@@ -9,7 +9,15 @@ import {
 } from "ethers";
 
 import type { ChainTicketEvent, ContractConfig } from "../../types/chainticket";
-import { CHECK_IN_REGISTRY_ABI, MARKETPLACE_ABI, TICKET_NFT_ABI } from "../abi";
+import {
+  CHECK_IN_REGISTRY_ABI,
+  FAN_FUEL_BANK_ABI,
+  INSURANCE_POOL_ABI,
+  MARKETPLACE_ABI,
+  MERCH_STORE_ABI,
+  PERK_MANAGER_ABI,
+  TICKET_NFT_ABI,
+} from "../abi";
 import {
   getLogEventFromArgs,
   normalizeAddress,
@@ -181,6 +189,22 @@ export function createEthersBindings(
     CHECK_IN_REGISTRY_ABI,
     readProvider,
   ) as Contract;
+  const insurancePoolRead =
+    config.insurancePoolAddress && config.insurancePoolAddress.length > 0
+      ? (new Contract(config.insurancePoolAddress, INSURANCE_POOL_ABI, readProvider) as Contract)
+      : null;
+  const fanFuelBankRead =
+    config.fanFuelBankAddress && config.fanFuelBankAddress.length > 0
+      ? (new Contract(config.fanFuelBankAddress, FAN_FUEL_BANK_ABI, readProvider) as Contract)
+      : null;
+  const perkManagerRead =
+    config.perkManagerAddress && config.perkManagerAddress.length > 0
+      ? (new Contract(config.perkManagerAddress, PERK_MANAGER_ABI, readProvider) as Contract)
+      : null;
+  const merchStoreRead =
+    config.merchStoreAddress && config.merchStoreAddress.length > 0
+      ? (new Contract(config.merchStoreAddress, MERCH_STORE_ABI, readProvider) as Contract)
+      : null;
 
   const getWriteRunner = (): ContractRunner =>
     requireSigner(options.signer, "Connect a wallet to send transactions.");
@@ -232,9 +256,13 @@ export function createEthersBindings(
       hasRole: async (role: string, account: string) =>
         Boolean(await ticketRead.hasRole(role, account)),
       primaryPrice: async () => toBigInt(await ticketRead.primaryPrice()),
+      insurancePremium: async () => toBigInt(await ticketRead.insurancePremium()),
       maxSupply: async () => toBigInt(await ticketRead.maxSupply()),
       totalMinted: async () => toBigInt(await ticketRead.totalMinted()),
       maxPerWallet: async () => toBigInt(await ticketRead.maxPerWallet()),
+      fanPassSupplyCap: async () => toBigInt(await ticketRead.fanPassSupplyCap()),
+      fanPassMinted: async () => toBigInt(await ticketRead.fanPassMinted()),
+      ticketClassOf: async (tokenId: bigint) => Number(await ticketRead.ticketClassOf(tokenId)),
       paused: async () => Boolean(await ticketRead.paused()),
       collectibleMode: async () => Boolean(await ticketRead.collectibleMode()),
       baseUris: async () => {
@@ -248,6 +276,27 @@ export function createEthersBindings(
           collectibleBaseURI: String(collectibleBaseURI),
         };
       },
+      coverageOf: async (tokenId: bigint) => {
+        const coverage = (await ticketRead.coverageOf(tokenId)) as [
+          boolean,
+          boolean,
+          boolean,
+          number | bigint,
+          bigint,
+          bigint,
+          bigint,
+        ];
+
+        return {
+          insured: Boolean(coverage[0]),
+          claimed: Boolean(coverage[1]),
+          claimable: Boolean(coverage[2]),
+          payoutBps: Number(coverage[3] ?? 0),
+          weatherRoundId: toBigInt(coverage[4] ?? 0n),
+          premiumPaid: toBigInt(coverage[5] ?? 0n),
+          payoutAmount: toBigInt(coverage[6] ?? 0n),
+        };
+      },
       isUsed: async (tokenId: bigint) => Boolean(await ticketRead.isUsed(tokenId)),
       tokenURI: async (tokenId: bigint) => String(await ticketRead.tokenURI(tokenId)),
       ownerOf: async (tokenId: bigint) => String(await ticketRead.ownerOf(tokenId)),
@@ -257,9 +306,38 @@ export function createEthersBindings(
         Boolean(await ticketRead.isApprovedForAll(owner, operator)),
       mintPrimary: async (value: bigint) => {
         const writable = ticketRead.connect(getWriteRunner()) as unknown as {
-          mintPrimary: (overrides: { value: bigint }) => Promise<TransactionResponse>;
+          mintPrimary?: (overrides: { value: bigint }) => Promise<TransactionResponse>;
+          mintStandard?: (
+            insured: boolean,
+            overrides: { value: bigint },
+          ) => Promise<TransactionResponse>;
         };
-        const tx = await writable.mintPrimary({ value });
+        const tx =
+          config.version === "v2" && writable.mintStandard
+            ? await writable.mintStandard(false, { value })
+            : await writable.mintPrimary!({ value });
+        return toTxResponse(tx);
+      },
+      mintStandard: async (insured: boolean, value: bigint) => {
+        const writable = ticketRead.connect(getWriteRunner()) as unknown as {
+          mintStandard: (
+            insured: boolean,
+            overrides: { value: bigint },
+          ) => Promise<TransactionResponse>;
+        };
+        const tx = await writable.mintStandard(insured, { value });
+        return toTxResponse(tx);
+      },
+      mintFanPass: async (signature: string, insured: boolean, deadline: bigint, value: bigint) => {
+        const writable = ticketRead.connect(getWriteRunner()) as unknown as {
+          mintFanPass: (
+            signature: string,
+            insured: boolean,
+            deadline: bigint,
+            overrides: { value: bigint },
+          ) => Promise<TransactionResponse>;
+        };
+        const tx = await writable.mintFanPass(signature, insured, deadline, { value });
         return toTxResponse(tx);
       },
       approve: async (spender: string, tokenId: bigint) => {
@@ -292,19 +370,84 @@ export function createEthersBindings(
       },
       simulateMint: async (value: bigint) => {
         const writable = ticketRead.connect(getWriteRunner()) as unknown as {
-          mintPrimary: {
+          mintPrimary?: {
             staticCall: (overrides: { value: bigint }) => Promise<void>;
           };
+          mintStandard?: {
+            staticCall: (insured: boolean, overrides: { value: bigint }) => Promise<void>;
+          };
         };
-        await writable.mintPrimary.staticCall({ value });
+        if (config.version === "v2" && writable.mintStandard) {
+          await writable.mintStandard.staticCall(false, { value });
+          return;
+        }
+        await writable.mintPrimary!.staticCall({ value });
       },
       estimateMintGas: async (value: bigint) => {
         const writable = ticketRead.connect(getWriteRunner()) as unknown as {
-          mintPrimary: {
+          mintPrimary?: {
             estimateGas: (overrides: { value: bigint }) => Promise<bigint>;
           };
+          mintStandard?: {
+            estimateGas: (insured: boolean, overrides: { value: bigint }) => Promise<bigint>;
+          };
         };
-        return writable.mintPrimary.estimateGas({ value });
+        if (config.version === "v2" && writable.mintStandard) {
+          return writable.mintStandard.estimateGas(false, { value });
+        }
+        return writable.mintPrimary!.estimateGas({ value });
+      },
+      simulateMintStandard: async (insured: boolean, value: bigint) => {
+        const writable = ticketRead.connect(getWriteRunner()) as unknown as {
+          mintStandard: {
+            staticCall: (insured: boolean, overrides: { value: bigint }) => Promise<void>;
+          };
+        };
+        await writable.mintStandard.staticCall(insured, { value });
+      },
+      estimateMintStandardGas: async (insured: boolean, value: bigint) => {
+        const writable = ticketRead.connect(getWriteRunner()) as unknown as {
+          mintStandard: {
+            estimateGas: (insured: boolean, overrides: { value: bigint }) => Promise<bigint>;
+          };
+        };
+        return writable.mintStandard.estimateGas(insured, { value });
+      },
+      simulateMintFanPass: async (
+        signature: string,
+        insured: boolean,
+        deadline: bigint,
+        value: bigint,
+      ) => {
+        const writable = ticketRead.connect(getWriteRunner()) as unknown as {
+          mintFanPass: {
+            staticCall: (
+              signature: string,
+              insured: boolean,
+              deadline: bigint,
+              overrides: { value: bigint },
+            ) => Promise<void>;
+          };
+        };
+        await writable.mintFanPass.staticCall(signature, insured, deadline, { value });
+      },
+      estimateMintFanPassGas: async (
+        signature: string,
+        insured: boolean,
+        deadline: bigint,
+        value: bigint,
+      ) => {
+        const writable = ticketRead.connect(getWriteRunner()) as unknown as {
+          mintFanPass: {
+            estimateGas: (
+              signature: string,
+              insured: boolean,
+              deadline: bigint,
+              overrides: { value: bigint },
+            ) => Promise<bigint>;
+          };
+        };
+        return writable.mintFanPass.estimateGas(signature, insured, deadline, { value });
       },
       simulateApprove: async (spender: string, tokenId: bigint) => {
         const writable = ticketRead.connect(getWriteRunner()) as unknown as {
@@ -359,6 +502,8 @@ export function createEthersBindings(
       },
     },
     marketplace: {
+      hasRole: async (role: string, account: string) =>
+        Boolean(await marketplaceRead.hasRole(role, account)),
       list: async (tokenId: bigint, price: bigint) => {
         const writable = marketplaceRead.connect(getWriteRunner()) as unknown as {
           list: (tokenId: bigint, price: bigint) => Promise<TransactionResponse>;
@@ -394,6 +539,16 @@ export function createEthersBindings(
           ) => Promise<TransactionResponse>;
         };
         const tx = await writable.buy(tokenId, { value: price });
+        return toTxResponse(tx);
+      },
+      organizerBuyback: async (tokenId: bigint, price: bigint) => {
+        const writable = marketplaceRead.connect(getWriteRunner()) as unknown as {
+          organizerBuyback: (
+            tokenId: bigint,
+            overrides: { value: bigint },
+          ) => Promise<TransactionResponse>;
+        };
+        const tx = await writable.organizerBuyback(tokenId, { value: price });
         return toTxResponse(tx);
       },
       getListing: async (tokenId: bigint) => parseListing(await marketplaceRead.getListing(tokenId)),
@@ -445,6 +600,22 @@ export function createEthersBindings(
         };
         return writable.buy.estimateGas(tokenId, { value: price });
       },
+      simulateOrganizerBuyback: async (tokenId: bigint, price: bigint) => {
+        const writable = marketplaceRead.connect(getWriteRunner()) as unknown as {
+          organizerBuyback: {
+            staticCall: (tokenId: bigint, overrides: { value: bigint }) => Promise<void>;
+          };
+        };
+        await writable.organizerBuyback.staticCall(tokenId, { value: price });
+      },
+      estimateOrganizerBuybackGas: async (tokenId: bigint, price: bigint) => {
+        const writable = marketplaceRead.connect(getWriteRunner()) as unknown as {
+          organizerBuyback: {
+            estimateGas: (tokenId: bigint, overrides: { value: bigint }) => Promise<bigint>;
+          };
+        };
+        return writable.organizerBuyback.estimateGas(tokenId, { value: price });
+      },
       queryListedEvents: async (fromBlock: number) => {
         const logs = await marketplaceRead.queryFilter(
           marketplaceRead.filters.Listed(),
@@ -473,6 +644,101 @@ export function createEthersBindings(
         return sortByBlockAndLog(logs.map((log) => parseSoldLog(log)));
       },
     },
+    fanFuelBank: fanFuelBankRead
+      ? {
+          balanceOf: async (fan: string) => toBigInt(await fanFuelBankRead.balanceOf(fan)),
+        }
+      : undefined,
+    perkManager: perkManagerRead
+      ? {
+          perkOf: async (perkId: string) => {
+            const perk = (await perkManagerRead.perkOf(perkId)) as [
+              string,
+              bigint,
+              bigint,
+              bigint,
+              boolean,
+              string,
+            ];
+
+            return {
+              artistKey: String(perk[0] ?? ""),
+              minScore: toBigInt(perk[1] ?? 0n),
+              minAttendances: toBigInt(perk[2] ?? 0n),
+              fuelCost: toBigInt(perk[3] ?? 0n),
+              active: Boolean(perk[4]),
+              metadataURI: String(perk[5] ?? ""),
+            };
+          },
+          canAccess: async (fan: string, perkId: string) =>
+            Boolean(await perkManagerRead.canAccess(fan, perkId)),
+          redeemPerk: async (perkId: string) => {
+            const writable = perkManagerRead.connect(getWriteRunner()) as unknown as {
+              redeemPerk: (perkId: string) => Promise<TransactionResponse>;
+            };
+            const tx = await writable.redeemPerk(perkId);
+            return toTxResponse(tx);
+          },
+          simulateRedeemPerk: async (perkId: string) => {
+            const writable = perkManagerRead.connect(getWriteRunner()) as unknown as {
+              redeemPerk: {
+                staticCall: (perkId: string) => Promise<void>;
+              };
+            };
+            await writable.redeemPerk.staticCall(perkId);
+          },
+          estimateRedeemPerkGas: async (perkId: string) => {
+            const writable = perkManagerRead.connect(getWriteRunner()) as unknown as {
+              redeemPerk: {
+                estimateGas: (perkId: string) => Promise<bigint>;
+              };
+            };
+            return writable.redeemPerk.estimateGas(perkId);
+          },
+        }
+      : undefined,
+    merchStore: merchStoreRead
+      ? {
+          getSku: async (skuId: string) => {
+            const sku = (await merchStoreRead.getSku(skuId)) as [
+              string,
+              bigint,
+              bigint,
+              boolean,
+            ];
+
+            return {
+              skuId: String(sku[0] ?? skuId),
+              price: toBigInt(sku[1] ?? 0n),
+              stock: toBigInt(sku[2] ?? 0n),
+              active: Boolean(sku[3]),
+            };
+          },
+          redeem: async (skuId: string) => {
+            const writable = merchStoreRead.connect(getWriteRunner()) as unknown as {
+              redeem: (skuId: string) => Promise<TransactionResponse>;
+            };
+            const tx = await writable.redeem(skuId);
+            return toTxResponse(tx);
+          },
+          simulateRedeem: async (skuId: string) => {
+            const writable = merchStoreRead.connect(getWriteRunner()) as unknown as {
+              redeem: {
+                staticCall: (skuId: string) => Promise<void>;
+              };
+            };
+            await writable.redeem.staticCall(skuId);
+          },
+          estimateRedeemGas: async (skuId: string) => {
+            const writable = merchStoreRead.connect(getWriteRunner()) as unknown as {
+              redeem: {
+                estimateGas: (skuId: string) => Promise<bigint>;
+              };
+            };
+            return writable.redeem.estimateGas(skuId);
+          },
+        }
+      : undefined,
     checkInRegistry: {
       hasRole: async (role: string, account: string) =>
         Boolean(await checkInRead.hasRole(role, account)),
@@ -482,6 +748,16 @@ export function createEthersBindings(
           markUsed: (tokenId: bigint) => Promise<TransactionResponse>;
         };
         const tx = await writable.markUsed(tokenId);
+        return toTxResponse(tx);
+      },
+      checkInAndTransform: async (tokenId: bigint, receiver: string) => {
+        const writable = checkInRead.connect(getWriteRunner()) as unknown as {
+          checkInAndTransform: (
+            tokenId: bigint,
+            receiver: string,
+          ) => Promise<TransactionResponse>;
+        };
+        const tx = await writable.checkInAndTransform(tokenId, receiver);
         return toTxResponse(tx);
       },
       grantScanner: async (account: string) => {
@@ -498,6 +774,38 @@ export function createEthersBindings(
         const tx = await writable.revokeScanner(account);
         return toTxResponse(tx);
       },
+      simulateMarkUsed: async (tokenId: bigint) => {
+        const writable = checkInRead.connect(getWriteRunner()) as unknown as {
+          markUsed: {
+            staticCall: (tokenId: bigint) => Promise<void>;
+          };
+        };
+        await writable.markUsed.staticCall(tokenId);
+      },
+      estimateMarkUsedGas: async (tokenId: bigint) => {
+        const writable = checkInRead.connect(getWriteRunner()) as unknown as {
+          markUsed: {
+            estimateGas: (tokenId: bigint) => Promise<bigint>;
+          };
+        };
+        return writable.markUsed.estimateGas(tokenId);
+      },
+      simulateCheckInAndTransform: async (tokenId: bigint, receiver: string) => {
+        const writable = checkInRead.connect(getWriteRunner()) as unknown as {
+          checkInAndTransform: {
+            staticCall: (tokenId: bigint, receiver: string) => Promise<void>;
+          };
+        };
+        await writable.checkInAndTransform.staticCall(tokenId, receiver);
+      },
+      estimateCheckInAndTransformGas: async (tokenId: bigint, receiver: string) => {
+        const writable = checkInRead.connect(getWriteRunner()) as unknown as {
+          checkInAndTransform: {
+            estimateGas: (tokenId: bigint, receiver: string) => Promise<bigint>;
+          };
+        };
+        return writable.checkInAndTransform.estimateGas(tokenId, receiver);
+      },
       queryUsedEvents: async (tokenId: bigint, fromBlock: number) => {
         const logs = await checkInRead.queryFilter(
           checkInRead.filters.TicketMarkedUsed(tokenId),
@@ -508,5 +816,32 @@ export function createEthersBindings(
         return sortByBlockAndLog(logs.map((log) => parseUsedLog(log)));
       },
     },
+    insurancePool: insurancePoolRead
+      ? {
+          claim: async (tokenId: bigint) => {
+            const writable = insurancePoolRead.connect(getWriteRunner()) as unknown as {
+              claim: (tokenId: bigint) => Promise<TransactionResponse>;
+            };
+            const tx = await writable.claim(tokenId);
+            return toTxResponse(tx);
+          },
+          simulateClaim: async (tokenId: bigint) => {
+            const writable = insurancePoolRead.connect(getWriteRunner()) as unknown as {
+              claim: {
+                staticCall: (tokenId: bigint) => Promise<void>;
+              };
+            };
+            await writable.claim.staticCall(tokenId);
+          },
+          estimateClaimGas: async (tokenId: bigint) => {
+            const writable = insurancePoolRead.connect(getWriteRunner()) as unknown as {
+              claim: {
+                estimateGas: (tokenId: bigint) => Promise<bigint>;
+              };
+            };
+            return writable.claim.estimateGas(tokenId);
+          },
+        }
+      : undefined,
   };
 }

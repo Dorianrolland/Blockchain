@@ -3,6 +3,7 @@ import type {
   BackendHealthSnapshot,
   ChainTicketClient,
   ContractConfig,
+  EmbeddedWalletSession,
   EventDeployment,
   MarketplaceView,
   PendingPreview,
@@ -55,6 +56,16 @@ export interface AppStateContextValue {
   walletProviders: WalletProviderInfo[];
   selectedProviderId: string;
   setSelectedProviderId: (providerId: string) => void;
+  embeddedWalletEnabled: boolean;
+  embeddedWalletEmail: string;
+  setEmbeddedWalletEmail: (email: string) => void;
+  embeddedWalletCode: string;
+  setEmbeddedWalletCode: (code: string) => void;
+  embeddedWalletSession: EmbeddedWalletSession | null;
+  embeddedWalletDevCode: string | null;
+  isEmbeddedWalletBusy: boolean;
+  requestEmbeddedWalletCode: () => Promise<void>;
+  verifyEmbeddedWalletCode: () => Promise<void>;
   connectedProvider: WalletProviderInfo | null;
   walletAddress: string;
   walletChainId: number | null;
@@ -108,6 +119,7 @@ export interface AppStateContextValue {
 
 export const EMPTY_ROLES: UserRoles = {
   isAdmin: false,
+  isBuybackOperator: false,
   isScannerAdmin: false,
   isPauser: false,
   isScanner: false,

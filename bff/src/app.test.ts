@@ -4,17 +4,32 @@ import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const repositoryMocks = vi.hoisted(() => ({
+  consumeEmbeddedWalletChallenge: vi.fn(),
+  createEmbeddedWalletSession: vi.fn(),
   getActiveListings: vi.fn(),
+  getEmbeddedWalletChallenge: vi.fn(),
+  getEmbeddedWalletSession: vi.fn(),
   getDemoCatalogEntries: vi.fn(),
   getEventDeployments: vi.fn(),
+  getFanTicketProfileStats: vi.fn(),
   getIndexedBlock: vi.fn(),
   getMarketStats: vi.fn(),
   getOperationalSummary: vi.fn(),
   getTicketTimeline: vi.fn(),
   getTicketsByOwner: vi.fn(),
+  touchEmbeddedWalletSession: vi.fn(),
+  upsertEmbeddedWalletChallenge: vi.fn(),
+}));
+
+const chainViewMocks = vi.hoisted(() => ({
+  getCollectiblesByOwnerFromChain: vi.fn(),
+  getMerchCatalogFromChain: vi.fn(),
+  getMerchRedemptionsByFanFromChain: vi.fn(),
+  getPerksForFanFromChain: vi.fn(),
 }));
 
 vi.mock("./repository.js", () => repositoryMocks);
+vi.mock("./chainViews.js", () => chainViewMocks);
 
 function applyBffEnv(): void {
   process.env.NODE_ENV = "test";
@@ -36,6 +51,11 @@ function applyBffEnv(): void {
   process.env.HEALTH_STALL_WARN_MS = "60000";
   process.env.HEALTH_STALL_CRITICAL_MS = "180000";
   process.env.HEALTH_RATE_LIMIT_STREAK_WARN = "3";
+  process.env.EMBEDDED_WALLET_MASTER_KEY = "embedded-wallet-test-master";
+  process.env.EMBEDDED_WALLET_SESSION_SECRET = "embedded-wallet-test-session";
+  process.env.EMBEDDED_WALLET_DEV_MODE = "true";
+  process.env.SPONSOR_RELAY_PRIVATE_KEY =
+    "0x5220ed6236ded5135e57d1b2aff5f1ca93296ffd312bdbde4f22d917065cdb7b";
 }
 
 class FakeIndexer extends EventEmitter {
@@ -70,10 +90,14 @@ class FakeIndexer extends EventEmitter {
 
   async getCurrentSystemState(_ticketEventId?: string) {
     return {
+      version: "v1",
       primaryPriceWei: "100000000000000000",
+      insurancePremiumWei: null,
       maxSupply: "100",
       totalMinted: "12",
       maxPerWallet: "2",
+      fanPassSupplyCap: null,
+      fanPassMinted: null,
       paused: false,
       collectibleMode: false,
       baseTokenURI: "ipfs://ticket/base/",
@@ -89,11 +113,25 @@ describe("createApp", () => {
     applyBffEnv();
     repositoryMocks.getIndexedBlock.mockResolvedValue(120);
     repositoryMocks.getEventDeployments.mockResolvedValue([]);
+    repositoryMocks.getFanTicketProfileStats.mockResolvedValue({
+      currentTicketCount: 0,
+      listedTicketCount: 0,
+    });
+    repositoryMocks.upsertEmbeddedWalletChallenge.mockResolvedValue(undefined);
+    repositoryMocks.getEmbeddedWalletChallenge.mockResolvedValue(null);
+    repositoryMocks.consumeEmbeddedWalletChallenge.mockResolvedValue(undefined);
+    repositoryMocks.createEmbeddedWalletSession.mockResolvedValue(undefined);
+    repositoryMocks.getEmbeddedWalletSession.mockResolvedValue(null);
+    repositoryMocks.touchEmbeddedWalletSession.mockResolvedValue(undefined);
     repositoryMocks.getDemoCatalogEntries.mockResolvedValue([]);
     repositoryMocks.getOperationalSummary.mockResolvedValue({
       roles: [],
       recentActivity: [],
     });
+    chainViewMocks.getCollectiblesByOwnerFromChain.mockResolvedValue([]);
+    chainViewMocks.getMerchCatalogFromChain.mockResolvedValue([]);
+    chainViewMocks.getMerchRedemptionsByFanFromChain.mockResolvedValue([]);
+    chainViewMocks.getPerksForFanFromChain.mockResolvedValue([]);
 
     const { metrics } = await import("./metrics.js");
     metrics.reset();
@@ -202,10 +240,14 @@ describe("createApp", () => {
 
     class CachedIndexer extends FakeIndexer {
       readonly getCurrentSystemStateSpy = vi.fn(async (_ticketEventId?: string) => ({
+        version: "v1",
         primaryPriceWei: "100000000000000000",
+        insurancePremiumWei: null,
         maxSupply: "100",
         totalMinted: "12",
         maxPerWallet: "2",
+        fanPassSupplyCap: null,
+        fanPassMinted: null,
         paused: false,
         collectibleMode: false,
         baseTokenURI: "ipfs://ticket/base/",
@@ -423,5 +465,227 @@ describe("createApp", () => {
     expect(svgMarkup).toContain("Mega Stadium Tour");
     expect(svgMarkup).toContain("Collectible Edition");
     expect(svgMarkup).toContain("Demo pass only");
+  });
+
+  it("serves V2 collectibles, perks, and merch fan surfaces through the BFF", async () => {
+    repositoryMocks.getEventDeployments.mockResolvedValue([
+      {
+        ticketEventId: "v2-event",
+        name: "Paris Finals",
+        symbol: "PF26",
+        version: "v2",
+        artistId: "artist-alpha",
+        seriesId: "tour-2026",
+        primaryPriceWei: "100000000000000000",
+        maxSupply: "100",
+        fanPassAllocationBps: "3000",
+        artistRoyaltyBps: "500",
+        treasury: "0x0000000000000000000000000000000000000001",
+        admin: "0x0000000000000000000000000000000000000002",
+        ticketNftAddress: "0x0000000000000000000000000000000000000003",
+        marketplaceAddress: "0x0000000000000000000000000000000000000004",
+        checkInRegistryAddress: "0x0000000000000000000000000000000000000005",
+        collectibleContract: "0x0000000000000000000000000000000000000006",
+        merchStore: "0x0000000000000000000000000000000000000007",
+        perkManager: "0x0000000000000000000000000000000000000008",
+        deploymentBlock: 100,
+        registeredAt: 1700000000,
+      },
+    ]);
+    chainViewMocks.getCollectiblesByOwnerFromChain.mockResolvedValue([
+      {
+        collectibleId: 19n,
+        owner: "0x00000000000000000000000000000000000000AA",
+        originFan: "0x00000000000000000000000000000000000000AA",
+        sourceTicketId: 7n,
+        sourceTicketClass: 1,
+        level: 2n,
+        tokenURI: "ipfs://collectible/19.json",
+      },
+    ]);
+    chainViewMocks.getPerksForFanFromChain.mockResolvedValue([
+      {
+        perkId: "0xperk",
+        artistKey: "0xartist",
+        minScore: 20n,
+        minAttendances: 1n,
+        fuelCost: 10n,
+        active: true,
+        metadataURI: "ipfs://perks/backstage-pass.json",
+        unlocked: true,
+        redeemedCount: 1,
+        lastRedeemedTxHash: "0xperk-tx",
+      },
+    ]);
+    chainViewMocks.getMerchCatalogFromChain.mockResolvedValue([
+      {
+        skuId: "tee-black-l",
+        price: 15n,
+        stock: 4n,
+        active: true,
+      },
+    ]);
+    chainViewMocks.getMerchRedemptionsByFanFromChain.mockResolvedValue([
+      {
+        skuId: "tee-black-l",
+        twinId: 3n,
+        fan: "0x00000000000000000000000000000000000000AA",
+        fuelCost: 15n,
+        txHash: "0xmerch",
+        blockNumber: 111,
+      },
+    ]);
+
+    const { createApp } = await import("./app.js");
+    const app = createApp(new FakeIndexer() as never);
+    const fanAddress = "0x00000000000000000000000000000000000000AA";
+
+    const [collectiblesResponse, perksResponse, merchCatalogResponse, merchHistoryResponse] =
+      await Promise.all([
+        request(app).get(`/v1/fans/${fanAddress}/collectibles?eventId=v2-event`),
+        request(app).get(`/v1/fans/${fanAddress}/perks?eventId=v2-event`),
+        request(app).get("/v1/merch/catalog?eventId=v2-event"),
+        request(app).get(`/v1/fans/${fanAddress}/merch-redemptions?eventId=v2-event`),
+      ]);
+
+    expect(collectiblesResponse.status).toBe(200);
+    expect(collectiblesResponse.body).toEqual({
+      ticketEventId: "v2-event",
+      address: fanAddress,
+      items: [
+        {
+          collectibleId: "19",
+          owner: "0x00000000000000000000000000000000000000AA",
+          originFan: "0x00000000000000000000000000000000000000AA",
+          sourceTicketId: "7",
+          sourceTicketClass: 1,
+          level: "2",
+          tokenURI: "ipfs://collectible/19.json",
+        },
+      ],
+    });
+
+    expect(perksResponse.status).toBe(200);
+    expect(perksResponse.body).toEqual({
+      ticketEventId: "v2-event",
+      address: fanAddress,
+      items: [
+        {
+          perkId: "0xperk",
+          artistKey: "0xartist",
+          minScore: "20",
+          minAttendances: "1",
+          fuelCost: "10",
+          active: true,
+          metadataURI: "ipfs://perks/backstage-pass.json",
+          unlocked: true,
+          redeemedCount: 1,
+          lastRedeemedTxHash: "0xperk-tx",
+        },
+      ],
+    });
+
+    expect(merchCatalogResponse.status).toBe(200);
+    expect(merchCatalogResponse.body).toEqual({
+      ticketEventId: "v2-event",
+      items: [
+        {
+          skuId: "tee-black-l",
+          price: "15",
+          stock: "4",
+          active: true,
+        },
+      ],
+    });
+
+    expect(merchHistoryResponse.status).toBe(200);
+    expect(merchHistoryResponse.body).toEqual({
+      ticketEventId: "v2-event",
+      address: fanAddress,
+      items: [
+        {
+          skuId: "tee-black-l",
+          twinId: "3",
+          fan: "0x00000000000000000000000000000000000000AA",
+          fuelCost: "15",
+          txHash: "0xmerch",
+          blockNumber: 111,
+        },
+      ],
+    });
+    expect(chainViewMocks.getCollectiblesByOwnerFromChain).toHaveBeenCalledWith(
+      expect.objectContaining({
+        collectibleContractAddress: "0x0000000000000000000000000000000000000006",
+        owner: fanAddress,
+      }),
+    );
+    expect(chainViewMocks.getPerksForFanFromChain).toHaveBeenCalledWith(
+      expect.objectContaining({
+        perkManagerAddress: "0x0000000000000000000000000000000000000008",
+        fan: fanAddress,
+      }),
+    );
+    expect(chainViewMocks.getMerchCatalogFromChain).toHaveBeenCalledWith(
+      expect.objectContaining({
+        merchStoreAddress: "0x0000000000000000000000000000000000000007",
+      }),
+    );
+    expect(chainViewMocks.getMerchRedemptionsByFanFromChain).toHaveBeenCalledWith(
+      expect.objectContaining({
+        merchStoreAddress: "0x0000000000000000000000000000000000000007",
+        fan: fanAddress,
+      }),
+    );
+  });
+
+  it("issues and restores embedded wallet beta sessions", async () => {
+    const { createApp } = await import("./app.js");
+    const app = createApp(new FakeIndexer() as never);
+
+    const requestCodeResponse = await request(app)
+      .post("/v1/embedded-wallet/request-code")
+      .send({ email: "Fan@Example.com" });
+
+    expect(requestCodeResponse.status).toBe(200);
+    expect(requestCodeResponse.body).toMatchObject({
+      enabled: true,
+      email: "fan@example.com",
+      codeSent: true,
+      provider: {
+        id: "embedded-beta",
+      },
+    });
+    expect(requestCodeResponse.body.devCode).toMatch(/^\d{6}$/);
+    expect(requestCodeResponse.body.walletAddress).toMatch(/^0x[a-fA-F0-9]{40}$/);
+
+    const verifyResponse = await request(app)
+      .post("/v1/embedded-wallet/verify-code")
+      .send({
+        email: "fan@example.com",
+        code: requestCodeResponse.body.devCode,
+      });
+
+    expect(verifyResponse.status).toBe(200);
+    expect(verifyResponse.body.sessionToken).toMatch(/\./);
+    expect(verifyResponse.body.session).toMatchObject({
+      email: "fan@example.com",
+      walletAddress: requestCodeResponse.body.walletAddress,
+    });
+
+    const restoreResponse = await request(app)
+      .get("/v1/embedded-wallet/session")
+      .set("Authorization", `Bearer ${verifyResponse.body.sessionToken}`);
+
+    expect(restoreResponse.status).toBe(200);
+    expect(restoreResponse.body).toMatchObject({
+      enabled: true,
+      session: {
+        email: "fan@example.com",
+        walletAddress: requestCodeResponse.body.walletAddress,
+      },
+      provider: {
+        id: "embedded-beta",
+      },
+    });
   });
 });

@@ -3,7 +3,19 @@
 /* eslint-disable */
 export * as interfaces from './interfaces/index.js';
 export { ChainTicketFactory__factory } from './ChainTicketFactory__factory.js';
+export { ChainTicketFactoryV2__factory } from './ChainTicketFactoryV2__factory.js';
 export { ChainTicketTimelock__factory } from './ChainTicketTimelock__factory.js';
 export { CheckInRegistry__factory } from './CheckInRegistry__factory.js';
+export { CheckInRegistryV2__factory } from './CheckInRegistryV2__factory.js';
+export { CollectibleNFT__factory } from './CollectibleNFT__factory.js';
+export { FanFuelBank__factory } from './FanFuelBank__factory.js';
+export { FanScoreRegistry__factory } from './FanScoreRegistry__factory.js';
+export { InsurancePool__factory } from './InsurancePool__factory.js';
 export { Marketplace__factory } from './Marketplace__factory.js';
+export { MarketplaceV2__factory } from './MarketplaceV2__factory.js';
+export { MerchStore__factory } from './MerchStore__factory.js';
+export { MerchTwinNFT__factory } from './MerchTwinNFT__factory.js';
+export { PerkManager__factory } from './PerkManager__factory.js';
 export { TicketNFT__factory } from './TicketNFT__factory.js';
+export { TicketNFTV2__factory } from './TicketNFTV2__factory.js';
+export { WeatherOracleAdapter__factory } from './WeatherOracleAdapter__factory.js';

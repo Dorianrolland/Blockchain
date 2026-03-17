@@ -111,6 +111,21 @@ describe("demoCatalog", () => {
         deploymentBlock: 100,
         registeredAt: 200,
       },
+      {
+        ticketEventId: "upgrade-main",
+        name: "ChainTicket Upgrade",
+        symbol: "CTU",
+        version: "v2" as const,
+        primaryPriceWei: "1",
+        maxSupply: "2",
+        treasury: "0x1",
+        admin: "0x2",
+        ticketNftAddress: "0x3",
+        marketplaceAddress: "0x4",
+        checkInRegistryAddress: "0x5",
+        deploymentBlock: 100,
+        registeredAt: 200,
+      },
     ];
 
     const merged = mergeDemoCatalogEntries(deployments, [
@@ -152,12 +167,20 @@ describe("demoCatalog", () => {
       },
     ]);
 
-    expect(merged.map((item) => item.ticketEventId)).toEqual(["demo-two", "demo-one"]);
+    expect(merged.map((item) => item.ticketEventId)).toEqual([
+      "demo-two",
+      "demo-one",
+      "upgrade-main",
+    ]);
     expect(merged[0]).toMatchObject({
       name: "On-chain Two",
       isDemoInspired: true,
       sourceEventId: "tm-2",
       venueName: "Venue Two",
+    });
+    expect(merged[2]).toMatchObject({
+      ticketEventId: "upgrade-main",
+      version: "v2",
     });
   });
 });

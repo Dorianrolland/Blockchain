@@ -157,6 +157,7 @@ export function mergeDemoCatalogEntries(
     deployments.map((deployment) => [deployment.ticketEventId, deployment] as const),
   );
   const merged: TicketEventDeployment[] = [];
+  const consumedDeploymentIds = new Set<string>();
 
   for (const entry of demoEntries) {
     const deployment = deploymentById.get(entry.ticketEventId);
@@ -164,6 +165,7 @@ export function mergeDemoCatalogEntries(
       continue;
     }
 
+    consumedDeploymentIds.add(entry.ticketEventId);
     merged.push({
       ...deployment,
       isDemoInspired: true,
@@ -178,6 +180,14 @@ export function mergeDemoCatalogEntries(
       imageUrl: entry.imageUrl,
       category: entry.category,
     });
+  }
+
+  for (const deployment of deployments) {
+    if (consumedDeploymentIds.has(deployment.ticketEventId)) {
+      continue;
+    }
+
+    merged.push(deployment);
   }
 
   return merged;

@@ -23,7 +23,7 @@ function isDefinedOption(value: string | null | undefined): value is string {
 
 export function ExplorePage() {
   const { locale } = useI18n();
-  const { availableEvents, selectedEventId, setSelectedEventId } = useAppState();
+  const { availableEvents, selectedEventId, setSelectedEventId, runtimeConfig } = useAppState();
   const [searchInput, setSearchInput] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [cityFilter, setCityFilter] = useState("all");
@@ -59,6 +59,8 @@ export function ExplorePage() {
           sectionSubtitle: "De grandes cartes editoriales pour ressentir le show avant meme d'ouvrir le detail.",
           marketLink: "Marketplace",
           liveEvent: "Evenement live",
+          fullStackLive: "Stack complete live",
+          fanPassLive: "FanPass 30%",
         }
       : {
           title: "Explore live experiences",
@@ -86,6 +88,8 @@ export function ExplorePage() {
           sectionSubtitle: "Large editorial cards that let the show land before the detail page even opens.",
           marketLink: "Marketplace",
           liveEvent: "Live event",
+          fullStackLive: "Full stack live",
+          fanPassLive: "FanPass 30%",
         };
 
   const categories = useMemo(
@@ -135,6 +139,18 @@ export function ExplorePage() {
         return !event.startsAt || event.startsAt >= renderTimestamp - 86_400_000;
       })
       .sort((left, right) => {
+        const leftIsPreferred = left.ticketEventId === runtimeConfig.defaultEventId;
+        const rightIsPreferred = right.ticketEventId === runtimeConfig.defaultEventId;
+        if (leftIsPreferred !== rightIsPreferred) {
+          return leftIsPreferred ? -1 : 1;
+        }
+
+        const leftIsUpgraded = left.version === "v2";
+        const rightIsUpgraded = right.version === "v2";
+        if (leftIsUpgraded !== rightIsUpgraded) {
+          return leftIsUpgraded ? -1 : 1;
+        }
+
         if (!left.startsAt && !right.startsAt) {
           return left.name.localeCompare(right.name);
         }
@@ -146,7 +162,15 @@ export function ExplorePage() {
         }
         return left.startsAt - right.startsAt;
       });
-  }, [availableEvents, categoryFilter, cityFilter, countryFilter, deferredSearchInput, renderTimestamp]);
+  }, [
+    availableEvents,
+    categoryFilter,
+    cityFilter,
+    countryFilter,
+    deferredSearchInput,
+    renderTimestamp,
+    runtimeConfig.defaultEventId,
+  ]);
 
   const featuredEvent =
     filteredEvents.find((event) => event.ticketEventId === selectedEventId) ??
@@ -173,11 +197,17 @@ export function ExplorePage() {
             <h2>{copy.heroTitle}</h2>
             <p>{copy.heroBody}</p>
             <div className="inline-actions">
+              {featuredEvent.version === "v2" ? (
+                <Tag tone="success">{copy.fullStackLive}</Tag>
+              ) : null}
               {benefitBadges.map((badge) => (
                 <Tag key={badge} tone="info">
                   {badge}
                 </Tag>
               ))}
+              {featuredEvent.version === "v2" && featuredEvent.fanPassAllocationBps ? (
+                <Tag tone="default">{copy.fanPassLive}</Tag>
+              ) : null}
             </div>
             <div className="inline-actions">
               <Badge tone="success" emphasis="solid">
@@ -294,11 +324,17 @@ export function ExplorePage() {
             <div className="explore-event-card-media">
               <EventPoster event={event} className="explore-card-poster" />
               <div className="explore-event-badge-row">
+                {event.version === "v2" ? (
+                  <Tag tone="success">{copy.fullStackLive}</Tag>
+                ) : null}
                 {benefitBadges.map((badge) => (
                   <Tag key={`${event.ticketEventId}-${badge}`} tone="default">
                     {badge}
                   </Tag>
                 ))}
+                {event.version === "v2" && event.fanPassAllocationBps ? (
+                  <Tag tone="info">{copy.fanPassLive}</Tag>
+                ) : null}
               </div>
             </div>
 

@@ -14,6 +14,14 @@ const config: ContractConfig = {
   marketplaceAddress: "0x0000000000000000000000000000000000000022",
   checkInRegistryAddress: "0x0000000000000000000000000000000000000033",
 };
+const v2Config: ContractConfig = {
+  ...config,
+  version: "v2",
+  fanFuelBankAddress: "0x0000000000000000000000000000000000000055",
+  perkManagerAddress: "0x0000000000000000000000000000000000000056",
+  merchStoreAddress: "0x0000000000000000000000000000000000000066",
+  insurancePoolAddress: "0x0000000000000000000000000000000000000044",
+};
 
 function fakeTx(hash: string) {
   return {
@@ -31,14 +39,27 @@ function makeBaseBindings() {
     ticket: {
       hasRole: vi.fn().mockResolvedValue(false),
       primaryPrice: vi.fn().mockResolvedValue(parseEther("0.1")),
+      insurancePremium: vi.fn().mockResolvedValue(parseEther("0.01")),
       maxSupply: vi.fn().mockResolvedValue(100n),
       totalMinted: vi.fn().mockResolvedValue(3n),
       maxPerWallet: vi.fn().mockResolvedValue(2n),
+      fanPassSupplyCap: vi.fn().mockResolvedValue(30n),
+      fanPassMinted: vi.fn().mockResolvedValue(1n),
+      ticketClassOf: vi.fn().mockResolvedValue(0),
       paused: vi.fn().mockResolvedValue(false),
       collectibleMode: vi.fn().mockResolvedValue(false),
       baseUris: vi.fn().mockResolvedValue({
         baseTokenURI: "ipfs://ticket/base/",
         collectibleBaseURI: "ipfs://ticket/collectible/",
+      }),
+      coverageOf: vi.fn().mockResolvedValue({
+        insured: true,
+        claimed: false,
+        claimable: true,
+        payoutBps: 5000,
+        weatherRoundId: 77n,
+        premiumPaid: parseEther("0.01"),
+        payoutAmount: parseEther("0.05"),
       }),
       isUsed: vi.fn().mockResolvedValue(false),
       tokenURI: vi.fn().mockImplementation(async (tokenId: bigint) => `ipfs://ticket/${tokenId}.json`),
@@ -47,20 +68,28 @@ function makeBaseBindings() {
       getApproved: vi.fn().mockResolvedValue(config.marketplaceAddress),
       isApprovedForAll: vi.fn().mockResolvedValue(false),
       mintPrimary: vi.fn().mockResolvedValue(fakeTx("0xmint")),
+      mintStandard: vi.fn().mockResolvedValue(fakeTx("0xmint-standard")),
+      mintFanPass: vi.fn().mockResolvedValue(fakeTx("0xmint-fanpass")),
       approve: vi.fn().mockResolvedValue(fakeTx("0xapprove")),
       simulateMint: vi.fn().mockResolvedValue(undefined),
       estimateMintGas: vi.fn().mockResolvedValue(12345n),
+      simulateMintStandard: vi.fn().mockResolvedValue(undefined),
+      estimateMintStandardGas: vi.fn().mockResolvedValue(23456n),
+      simulateMintFanPass: vi.fn().mockResolvedValue(undefined),
+      estimateMintFanPassGas: vi.fn().mockResolvedValue(34567n),
       simulateApprove: vi.fn().mockResolvedValue(undefined),
-      estimateApproveGas: vi.fn().mockResolvedValue(23456n),
+      estimateApproveGas: vi.fn().mockResolvedValue(45678n),
       queryTransferEvents: vi.fn().mockResolvedValue([]),
       queryTransferEventsByToken: vi.fn().mockResolvedValue([]),
       queryCollectibleModeEvents: vi.fn().mockResolvedValue([]),
     },
     marketplace: {
+      hasRole: vi.fn().mockResolvedValue(false),
       list: vi.fn().mockResolvedValue(fakeTx("0xlist")),
       listWithPermit: vi.fn().mockResolvedValue(fakeTx("0xlist-permit")),
       cancel: vi.fn().mockResolvedValue(fakeTx("0xcancel")),
       buy: vi.fn().mockResolvedValue(fakeTx("0xbuy")),
+      organizerBuyback: vi.fn().mockResolvedValue(fakeTx("0xbuyback")),
       getListing: vi.fn().mockResolvedValue({
         seller: "0x00000000000000000000000000000000000000AA",
         price: parseEther("0.09"),
@@ -71,13 +100,54 @@ function makeBaseBindings() {
       estimateCancelGas: vi.fn().mockResolvedValue(45678n),
       simulateBuy: vi.fn().mockResolvedValue(undefined),
       estimateBuyGas: vi.fn().mockResolvedValue(56789n),
+      simulateOrganizerBuyback: vi.fn().mockResolvedValue(undefined),
+      estimateOrganizerBuybackGas: vi.fn().mockResolvedValue(67890n),
       queryListedEvents: vi.fn().mockResolvedValue([]),
       queryCancelledEvents: vi.fn().mockResolvedValue([]),
       querySoldEvents: vi.fn().mockResolvedValue([]),
     },
+    fanFuelBank: {
+      balanceOf: vi.fn().mockResolvedValue(40n),
+    },
+    perkManager: {
+      perkOf: vi.fn().mockResolvedValue({
+        artistKey: "0xartist",
+        minScore: 20n,
+        minAttendances: 1n,
+        fuelCost: 10n,
+        active: true,
+        metadataURI: "ipfs://perks/backstage.json",
+      }),
+      canAccess: vi.fn().mockResolvedValue(true),
+      redeemPerk: vi.fn().mockResolvedValue(fakeTx("0xredeem-perk")),
+      simulateRedeemPerk: vi.fn().mockResolvedValue(undefined),
+      estimateRedeemPerkGas: vi.fn().mockResolvedValue(43333n),
+    },
+    merchStore: {
+      getSku: vi.fn().mockResolvedValue({
+        skuId: "tee-black-l",
+        price: 15n,
+        stock: 4n,
+        active: true,
+      }),
+      redeem: vi.fn().mockResolvedValue(fakeTx("0xredeem-merch")),
+      simulateRedeem: vi.fn().mockResolvedValue(undefined),
+      estimateRedeemGas: vi.fn().mockResolvedValue(44444n),
+    },
+    insurancePool: {
+      claim: vi.fn().mockResolvedValue(fakeTx("0xclaim-insurance")),
+      simulateClaim: vi.fn().mockResolvedValue(undefined),
+      estimateClaimGas: vi.fn().mockResolvedValue(33333n),
+    },
     checkInRegistry: {
       hasRole: vi.fn().mockResolvedValue(false),
       isUsed: vi.fn().mockResolvedValue(false),
+      markUsed: vi.fn().mockResolvedValue(fakeTx("0xmark-used")),
+      checkInAndTransform: vi.fn().mockResolvedValue(fakeTx("0xcheckin-transform")),
+      simulateMarkUsed: vi.fn().mockResolvedValue(undefined),
+      estimateMarkUsedGas: vi.fn().mockResolvedValue(11111n),
+      simulateCheckInAndTransform: vi.fn().mockResolvedValue(undefined),
+      estimateCheckInAndTransformGas: vi.fn().mockResolvedValue(22222n),
       queryUsedEvents: vi.fn().mockResolvedValue([]),
     },
   };
@@ -234,6 +304,75 @@ describe("chainTicketClient", () => {
     expect(bindings.marketplace.buy).toHaveBeenCalledWith(4n, parseEther("0.09"));
   });
 
+  it("routes V2 standard mint, FanPass mint, and organizer buyback with the correct values", async () => {
+    const bindings = makeBaseBindings();
+    const client = createChainTicketClientFromBindings(v2Config, bindings);
+
+    await client.mintStandardTicket?.(true);
+    await client.mintFanPassTicket?.(
+      {
+        ticketEventId: "v2-event",
+        address: "0x00000000000000000000000000000000000000BB",
+        signer: "0x00000000000000000000000000000000000000CC",
+        deadline: 1234n,
+        signature: "0xsigned",
+      },
+      true,
+    );
+    await client.organizerBuyback?.(8n);
+
+    expect(bindings.ticket.mintStandard).toHaveBeenCalledWith(true, parseEther("0.11"));
+    expect(bindings.ticket.mintFanPass).toHaveBeenCalledWith(
+      "0xsigned",
+      true,
+      1234n,
+      parseEther("0.11"),
+    );
+    expect(bindings.marketplace.organizerBuyback).toHaveBeenCalledWith(8n, parseEther("0.1"));
+  });
+
+  it("routes collectible check-in through the registry with the ticket owner as receiver", async () => {
+    const bindings = makeBaseBindings();
+    const client = createChainTicketClientFromBindings(v2Config, bindings);
+
+    await client.markTicketUsed?.(12n);
+    await client.checkInToCollectible?.(12n);
+
+    expect(bindings.checkInRegistry.markUsed).toHaveBeenCalledWith(12n);
+    expect(bindings.ticket.ownerOf).toHaveBeenCalledWith(12n);
+    expect(bindings.checkInRegistry.checkInAndTransform).toHaveBeenCalledWith(
+      12n,
+      "0x00000000000000000000000000000000000000BB",
+    );
+  });
+
+  it("routes insurance claims through the V2 insurance pool", async () => {
+    const bindings = makeBaseBindings();
+    const client = createChainTicketClientFromBindings(v2Config, bindings);
+
+    await client.claimInsurance?.(12n);
+
+    expect(bindings.insurancePool?.claim).toHaveBeenCalledWith(12n);
+  });
+
+  it("routes perk redemption through the V2 perk manager", async () => {
+    const bindings = makeBaseBindings();
+    const client = createChainTicketClientFromBindings(v2Config, bindings);
+
+    await client.redeemPerk?.("0xperk");
+
+    expect(bindings.perkManager?.redeemPerk).toHaveBeenCalledWith("0xperk");
+  });
+
+  it("routes merch redemption through the V2 merch store", async () => {
+    const bindings = makeBaseBindings();
+    const client = createChainTicketClientFromBindings(v2Config, bindings);
+
+    await client.redeemMerch?.("tee-black-l");
+
+    expect(bindings.merchStore?.redeem).toHaveBeenCalledWith("tee-black-l");
+  });
+
   it("returns preview-ready base uris in system state", async () => {
     const bindings = makeBaseBindings();
     const client = createChainTicketClientFromBindings(config, bindings);
@@ -260,6 +399,7 @@ describe("chainTicketClient", () => {
 
     expect(roles).toEqual({
       isAdmin: false,
+      isBuybackOperator: false,
       isScannerAdmin: true,
       isPauser: true,
       isScanner: true,
@@ -324,6 +464,128 @@ describe("chainTicketClient", () => {
     expect(cancelPreflight.blockers).toEqual(
       expect.arrayContaining(["Listing is already inactive."]),
     );
+  });
+
+  it("keeps V2 preflight blockers for FanPass mint and organizer buyback", async () => {
+    const bindings = makeBaseBindings();
+    bindings.ticket.totalMinted = vi.fn().mockResolvedValue(100n);
+    bindings.ticket.maxSupply = vi.fn().mockResolvedValue(100n);
+    bindings.ticket.fanPassSupplyCap = vi.fn().mockResolvedValue(30n);
+    bindings.ticket.fanPassMinted = vi.fn().mockResolvedValue(30n);
+    bindings.ticket.balanceOf = vi.fn().mockResolvedValue(2n);
+    bindings.ticket.maxPerWallet = vi.fn().mockResolvedValue(2n);
+    bindings.marketplace.hasRole = vi.fn().mockResolvedValue(false);
+    bindings.ticket.ticketClassOf = vi.fn().mockResolvedValue(0);
+    bindings.checkInRegistry.isUsed = vi.fn().mockResolvedValue(false);
+    bindings.ticket.getApproved = vi.fn().mockResolvedValue("0x00000000000000000000000000000000000000DD");
+    bindings.ticket.isApprovedForAll = vi.fn().mockResolvedValue(false);
+
+    const client = createChainTicketClientFromBindings(v2Config, bindings);
+
+    const fanPassPreflight = await client.preflightAction({
+      type: "mint_fanpass",
+      insured: true,
+      deadline: 1234n,
+      signature: "0xsigned",
+    });
+    expect(fanPassPreflight.blockers).toEqual(
+      expect.arrayContaining([
+        "Event is sold out.",
+        "FanPass allocation exhausted.",
+        "Wallet ticket limit reached.",
+      ]),
+    );
+
+    const buybackPreflight = await client.preflightAction({
+      type: "organizer_buyback",
+      tokenId: 9n,
+    });
+    expect(buybackPreflight.blockers).toEqual(
+      expect.arrayContaining([
+        "BUYBACK_ROLE is required for organizer buyback.",
+        "Only FanPass tickets can be bought back.",
+        "Marketplace approval missing for this token.",
+      ]),
+    );
+  });
+
+  it("keeps scanner preflight coverage for direct check-in and collectible transform", async () => {
+    const bindings = makeBaseBindings();
+    bindings.checkInRegistry.hasRole = vi.fn().mockResolvedValue(true);
+
+    const client = createChainTicketClientFromBindings(v2Config, bindings);
+
+    const markUsedPreflight = await client.preflightAction({
+      type: "checkin_mark_used",
+      tokenId: 4n,
+    });
+    const transformPreflight = await client.preflightAction({
+      type: "checkin_transform",
+      tokenId: 4n,
+    });
+
+    expect(markUsedPreflight.ok).toBe(true);
+    expect(markUsedPreflight.gasEstimate).toBe(11111n);
+    expect(bindings.checkInRegistry.simulateMarkUsed).toHaveBeenCalledWith(4n);
+
+    expect(transformPreflight.ok).toBe(true);
+    expect(transformPreflight.gasEstimate).toBe(22222n);
+    expect(bindings.checkInRegistry.simulateCheckInAndTransform).toHaveBeenCalledWith(
+      4n,
+      "0x00000000000000000000000000000000000000BB",
+    );
+  });
+
+  it("keeps insurance-claim preflight coverage for claimable insured tickets", async () => {
+    const bindings = makeBaseBindings();
+    const client = createChainTicketClientFromBindings(v2Config, bindings);
+
+    const preflight = await client.preflightAction({
+      type: "claim_insurance",
+      tokenId: 4n,
+    });
+
+    expect(preflight.ok).toBe(true);
+    expect(preflight.gasEstimate).toBe(33333n);
+    expect(bindings.ticket.coverageOf).toHaveBeenCalledWith(4n);
+    expect(bindings.insurancePool?.simulateClaim).toHaveBeenCalledWith(4n);
+  });
+
+  it("keeps perk-redemption preflight coverage for unlocked perks", async () => {
+    const bindings = makeBaseBindings();
+    const client = createChainTicketClientFromBindings(v2Config, bindings);
+
+    const preflight = await client.preflightAction({
+      type: "redeem_perk",
+      perkId: "0xperk",
+    });
+
+    expect(preflight.ok).toBe(true);
+    expect(preflight.gasEstimate).toBe(43333n);
+    expect(bindings.perkManager?.perkOf).toHaveBeenCalledWith("0xperk");
+    expect(bindings.perkManager?.canAccess).toHaveBeenCalledWith(
+      "0x00000000000000000000000000000000000000bb",
+      "0xperk",
+    );
+    expect(bindings.perkManager?.simulateRedeemPerk).toHaveBeenCalledWith("0xperk");
+  });
+
+  it("keeps merch-redemption preflight coverage for active in-stock SKUs", async () => {
+    const bindings = makeBaseBindings();
+    const client = createChainTicketClientFromBindings(v2Config, bindings);
+
+    const preflight = await client.preflightAction({
+      type: "redeem_merch",
+      skuId: "tee-black-l",
+    });
+
+    expect(preflight.ok).toBe(true);
+    expect(preflight.gasEstimate).toBe(44444n);
+    expect(bindings.merchStore?.getSku).toHaveBeenCalledWith("tee-black-l");
+    expect(bindings.fanFuelBank?.balanceOf).toHaveBeenCalledWith(
+      "0x00000000000000000000000000000000000000bb",
+    );
+    expect(bindings.merchStore?.simulateRedeem).toHaveBeenCalledWith("tee-black-l");
   });
 
   it("keeps timeline ordering, kinds, and timestamps stable", async () => {

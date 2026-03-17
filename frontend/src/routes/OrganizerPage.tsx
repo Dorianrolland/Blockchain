@@ -95,6 +95,13 @@ function formatGovernanceDelay(seconds: number): string {
   return parts.join(" ");
 }
 
+function formatBps(value?: string): string {
+  if (!value) {
+    return "-";
+  }
+  return `${(Number(value) / 100).toFixed(2)}%`;
+}
+
 export function OrganizerPage() {
   const { locale, t } = useI18n();
   const {
@@ -105,6 +112,8 @@ export function OrganizerPage() {
     userRoles,
     systemState,
     marketStats,
+    availableEvents,
+    selectedEventId,
     preparePreview,
     setErrorMessage,
     setStatusMessage,
@@ -113,18 +122,24 @@ export function OrganizerPage() {
   } = useAppState();
   const [scannerAddressInput, setScannerAddressInput] = useState("");
   const [governancePacket, setGovernancePacket] = useState<GovernancePacket | null>(null);
-  const bffClient = useMemo(() => createBffClient(runtimeConfig.apiBaseUrl), [runtimeConfig.apiBaseUrl]);
+  const bffClient = useMemo(
+    () => createBffClient(runtimeConfig?.apiBaseUrl ?? null),
+    [runtimeConfig?.apiBaseUrl],
+  );
+  const selectedEvent =
+    (availableEvents ?? []).find((event) => event.ticketEventId === selectedEventId) ?? null;
   const governancePacketJson = useMemo(
     () => (governancePacket ? JSON.stringify(governancePacket, null, 2) : ""),
     [governancePacket],
   );
+  const isUpgradedEvent = selectedEvent?.version === "v2";
 
   useEffect(() => {
     setGovernancePacket(null);
   }, [
     contractConfig.eventId,
     contractConfig.ticketNftAddress,
-    runtimeConfig.governanceTimelockAddress,
+    runtimeConfig?.governanceTimelockAddress,
   ]);
 
   const canPauseSystem = userRoles.isPauser;
@@ -136,7 +151,7 @@ export function OrganizerPage() {
     queryKey: [
       "organizer-ops-summary",
       contractConfig.eventId,
-      runtimeConfig.apiBaseUrl,
+      runtimeConfig?.apiBaseUrl,
       indexedReadsAvailable,
     ],
     enabled: Boolean(bffClient && indexedReadsAvailable && contractConfig.eventId),
@@ -194,6 +209,35 @@ export function OrganizerPage() {
           operatorWallet: "Wallet operateur",
           totalMinted: "Total mint",
           notConnected: "Non connecte",
+          deploymentVersion: "Set produit",
+          versionV1: "Rails legacy",
+          versionV2: "Set complet",
+          rolloutTitle: "Etat du rollout produit",
+          rolloutSubtitle:
+            "On rend visible ce qui est vraiment live pour cet evenement, au lieu de laisser la stack technique seule raconter l'etat du produit.",
+          rolloutCauseV1:
+            "Cet evenement tourne encore sur le set legacy, donc Fan-Fuel, FanPass protege, assurance et merch ne sont pas actifs ici.",
+          rolloutCauseV2:
+            "Cet evenement porte deja le set business complet et peut servir de base a l'experience fan finale.",
+          rolloutFanTitle: "Retention fan",
+          rolloutAccessTitle: "Acces protege et revente",
+          rolloutInsuranceTitle: "Assurance et oracle",
+          rolloutCollectibleTitle: "Collectible et merch",
+          rolloutLive: "Live",
+          rolloutPartial: "Partiel",
+          rolloutPlanned: "Inactif ici",
+          rolloutStatus: "Statut",
+          rolloutScore: "Score / perks",
+          rolloutFuel: "Fan-Fuel",
+          rolloutFanPass: "FanPass protege",
+          rolloutRoyalty: "Royalty artiste",
+          rolloutInsurance: "Assurance",
+          rolloutOracle: "Oracle",
+          rolloutCollectible: "Collectible",
+          rolloutMerch: "Merch phygital",
+          rolloutMissing: "Inactif ici",
+          rolloutOnChain: "On-chain",
+          rolloutConnected: "Connecte",
         }
       : {
           title: "Organizer Cockpit",
@@ -216,7 +260,182 @@ export function OrganizerPage() {
           operatorWallet: "Operator wallet",
           totalMinted: "Total minted",
           notConnected: "Not connected",
+          deploymentVersion: "Product rail set",
+          versionV1: "Legacy rails",
+          versionV2: "Full rail set",
+          rolloutTitle: "Product rollout status",
+          rolloutSubtitle:
+            "This makes the product state explicit for the selected event instead of expecting the contract map to tell the whole story.",
+          rolloutCauseV1:
+            "This event still runs on the legacy rail set, so Fan-Fuel, protected FanPass, insurance, and merch are not active here.",
+          rolloutCauseV2:
+            "This event already carries the full business rail set and can support the complete fan experience.",
+          rolloutFanTitle: "Fan retention",
+          rolloutAccessTitle: "Protected access and resale",
+          rolloutInsuranceTitle: "Insurance and oracle",
+          rolloutCollectibleTitle: "Collectible and merch",
+          rolloutLive: "Live",
+          rolloutPartial: "Partial",
+          rolloutPlanned: "Inactive here",
+          rolloutStatus: "Status",
+          rolloutScore: "Score / perks",
+          rolloutFuel: "Fan-Fuel",
+          rolloutFanPass: "Protected FanPass",
+          rolloutRoyalty: "Artist royalty",
+          rolloutInsurance: "Insurance",
+          rolloutOracle: "Oracle",
+          rolloutCollectible: "Collectible",
+          rolloutMerch: "Phygital merch",
+          rolloutMissing: "Inactive here",
+          rolloutOnChain: "On-chain",
+          rolloutConnected: "Connected",
         };
+  const rolloutCards = useMemo(
+    () => [
+      {
+        key: "fan",
+        title: copy.rolloutFanTitle,
+        tone:
+          isUpgradedEvent && selectedEvent?.fanScoreRegistry && selectedEvent?.perkManager
+            ? ("success" as const)
+            : isUpgradedEvent
+              ? ("warning" as const)
+              : ("default" as const),
+        badge:
+          isUpgradedEvent && selectedEvent?.fanScoreRegistry && selectedEvent?.perkManager
+            ? copy.rolloutLive
+            : isUpgradedEvent
+              ? copy.rolloutPartial
+              : copy.rolloutPlanned,
+        body: isUpgradedEvent ? copy.rolloutCauseV2 : copy.rolloutCauseV1,
+        entries: [
+          {
+            label: copy.rolloutScore,
+            value:
+              isUpgradedEvent && selectedEvent?.fanScoreRegistry && selectedEvent?.perkManager
+                ? copy.rolloutOnChain
+                : copy.rolloutMissing,
+          },
+          {
+            label: copy.rolloutFuel,
+            value:
+              isUpgradedEvent && selectedEvent?.fanFuelBank
+                ? copy.rolloutOnChain
+                : copy.rolloutMissing,
+          },
+        ],
+      },
+      {
+        key: "access",
+        title: copy.rolloutAccessTitle,
+        tone: isUpgradedEvent ? ("success" as const) : ("warning" as const),
+        badge: isUpgradedEvent ? copy.rolloutLive : copy.rolloutPartial,
+        body:
+          locale === "fr"
+            ? "Les regles de protection fan et la revente capee deviennent lisibles evenement par evenement."
+            : "Fan protection rules and capped resale become legible event by event.",
+        entries: [
+          {
+            label: copy.rolloutFanPass,
+            value: isUpgradedEvent ? formatBps(selectedEvent?.fanPassAllocationBps) : copy.rolloutMissing,
+          },
+          {
+            label: copy.rolloutRoyalty,
+            value: isUpgradedEvent ? formatBps(selectedEvent?.artistRoyaltyBps) : copy.rolloutMissing,
+          },
+        ],
+      },
+      {
+        key: "insurance",
+        title: copy.rolloutInsuranceTitle,
+        tone:
+          isUpgradedEvent && selectedEvent?.insurancePool && selectedEvent?.oracleAdapter
+            ? ("success" as const)
+            : isUpgradedEvent
+              ? ("warning" as const)
+              : ("default" as const),
+        badge:
+          isUpgradedEvent && selectedEvent?.insurancePool && selectedEvent?.oracleAdapter
+            ? copy.rolloutLive
+            : isUpgradedEvent
+              ? copy.rolloutPartial
+              : copy.rolloutPlanned,
+        body:
+          locale === "fr"
+            ? "La prime, le pool et le trigger oracle doivent etre visibles comme rails business distincts."
+            : "The premium, pool, and oracle trigger should read as separate business rails.",
+        entries: [
+          {
+            label: copy.rolloutInsurance,
+            value:
+              systemState?.insurancePremium !== undefined
+                ? `${formatPol(systemState.insurancePremium)} POL`
+                : copy.rolloutMissing,
+          },
+          {
+            label: copy.rolloutOracle,
+            value:
+              isUpgradedEvent && selectedEvent?.oracleAdapter
+                ? copy.rolloutConnected
+                : copy.rolloutMissing,
+          },
+        ],
+      },
+      {
+        key: "collectible",
+        title: copy.rolloutCollectibleTitle,
+        tone:
+          isUpgradedEvent && selectedEvent?.collectibleContract && selectedEvent?.merchStore
+            ? ("success" as const)
+            : isUpgradedEvent || Boolean(systemState?.collectibleMode)
+              ? ("warning" as const)
+              : ("default" as const),
+        badge:
+          isUpgradedEvent && selectedEvent?.collectibleContract && selectedEvent?.merchStore
+            ? copy.rolloutLive
+            : isUpgradedEvent || Boolean(systemState?.collectibleMode)
+              ? copy.rolloutPartial
+              : copy.rolloutPlanned,
+        body:
+          locale === "fr"
+            ? "Le souvenir post-check-in et le merch jumeau doivent vivre dans la meme histoire produit."
+            : "Post-check-in souvenirs and twin merch should live in the same product story.",
+        entries: [
+          {
+            label: copy.rolloutCollectible,
+            value:
+              isUpgradedEvent && selectedEvent?.collectibleContract
+                ? systemState?.collectibleMode
+                  ? "Mode live"
+                  : "Contract wired"
+                : Boolean(systemState?.collectibleMode)
+                  ? "Alpha mode"
+                  : copy.rolloutMissing,
+          },
+          {
+            label: copy.rolloutMerch,
+            value: isUpgradedEvent && selectedEvent?.merchStore ? "Store wired" : copy.rolloutMissing,
+          },
+        ],
+      },
+    ],
+    [
+      copy,
+      isUpgradedEvent,
+      locale,
+      selectedEvent?.artistRoyaltyBps,
+      selectedEvent?.collectibleContract,
+      selectedEvent?.fanFuelBank,
+      selectedEvent?.fanPassAllocationBps,
+      selectedEvent?.fanScoreRegistry,
+      selectedEvent?.insurancePool,
+      selectedEvent?.merchStore,
+      selectedEvent?.oracleAdapter,
+      selectedEvent?.perkManager,
+      systemState?.collectibleMode,
+      systemState?.insurancePremium,
+    ],
+  );
 
   const runPauseToggle = async (shouldPause: boolean) => {
     if (!canPauseSystem) {
@@ -315,8 +534,8 @@ export function OrganizerPage() {
         eventId: contractConfig.eventId,
         eventName: contractConfig.eventName,
         ticketNftAddress: contractConfig.ticketNftAddress,
-        timelockAddress: runtimeConfig.governanceTimelockAddress,
-        timelockMinDelaySeconds: runtimeConfig.governanceMinDelaySeconds,
+        timelockAddress: runtimeConfig?.governanceTimelockAddress ?? null,
+        timelockMinDelaySeconds: runtimeConfig?.governanceMinDelaySeconds ?? 0,
       });
       setGovernancePacket(packet);
       setStatusMessage(
@@ -353,6 +572,9 @@ export function OrganizerPage() {
         workspace="organizer"
         context={
           <div className="inline-actions">
+            <Tag tone={isUpgradedEvent ? "success" : "warning"}>
+              {isUpgradedEvent ? copy.versionV2 : copy.versionV1}
+            </Tag>
             <Tag tone={canGovern ? "success" : "warning"}>
               {canGovern ? "Governance admin" : "No governance admin"}
             </Tag>
@@ -383,6 +605,25 @@ export function OrganizerPage() {
           </ButtonGroup>
         }
       />
+
+      <Panel className="organizer-overview-panel" surface="glass">
+        <SectionHeader
+          title={copy.rolloutTitle}
+          subtitle={copy.rolloutSubtitle}
+        />
+        <div className="organizer-cockpit-grid">
+          {rolloutCards.map((card) => (
+            <Card key={card.key} className="organizer-panel-card" surface="glass">
+              <div className="inline-actions">
+                <h3>{card.title}</h3>
+                <Tag tone={card.tone}>{card.badge}</Tag>
+              </div>
+              <p>{card.body}</p>
+              <InfoList entries={card.entries} />
+            </Card>
+          ))}
+        </div>
+      </Panel>
 
       {!hasOrganizerAccess ? (
         <RiskBanner
@@ -559,7 +800,7 @@ export function OrganizerPage() {
                 },
                 {
                   label: "Governance delay",
-                  value: formatGovernanceDelay(runtimeConfig.governanceMinDelaySeconds),
+                  value: formatGovernanceDelay(runtimeConfig?.governanceMinDelaySeconds ?? 0),
                 },
               ]}
             />
@@ -588,7 +829,7 @@ export function OrganizerPage() {
               <button type="button" className="ghost" onClick={() => prepareGovernancePacket(false)}>
                 Prepare disable packet
               </button>
-              {runtimeConfig.governancePortalUrl ? (
+              {runtimeConfig?.governancePortalUrl ? (
                 <a
                   href={runtimeConfig.governancePortalUrl}
                   target="_blank"
@@ -701,10 +942,46 @@ export function OrganizerPage() {
                 { label: "TicketNFT", value: contractConfig.ticketNftAddress },
                 { label: "Marketplace", value: contractConfig.marketplaceAddress },
                 { label: "CheckInRegistry", value: contractConfig.checkInRegistryAddress },
+                ...(selectedEvent?.version === "v2"
+                  ? [
+                      { label: "CollectibleNFT", value: selectedEvent.collectibleContract ?? "-" },
+                      { label: "FanScoreRegistry", value: selectedEvent.fanScoreRegistry ?? "-" },
+                      { label: "FanFuelBank", value: selectedEvent.fanFuelBank ?? "-" },
+                      { label: "PerkManager", value: selectedEvent.perkManager ?? "-" },
+                      { label: "InsurancePool", value: selectedEvent.insurancePool ?? "-" },
+                      { label: "OracleAdapter", value: selectedEvent.oracleAdapter ?? "-" },
+                      { label: "MerchStore", value: selectedEvent.merchStore ?? "-" },
+                    ]
+                  : []),
               ]}
             />
             <p>Recommended governance posture: long-term admin rights belong behind a multisig or timelock.</p>
           </Card>
+
+          {selectedEvent?.version === "v2" ? (
+            <Card className="organizer-panel-card" surface="glass">
+              <h3>Upgraded business rails</h3>
+              <InfoList
+                entries={[
+                  { label: "Artist", value: selectedEvent.artistId ?? "-" },
+                  { label: "Series", value: selectedEvent.seriesId ?? "-" },
+                  { label: "Artist royalty", value: formatBps(selectedEvent.artistRoyaltyBps) },
+                  { label: "FanPass allocation", value: formatBps(selectedEvent.fanPassAllocationBps) },
+                  {
+                    label: "Insurance premium",
+                    value: systemState?.insurancePremium ? `${formatPol(systemState.insurancePremium)} POL` : "-",
+                  },
+                  {
+                    label: "FanPass minted",
+                    value:
+                      systemState?.fanPassMinted !== undefined && systemState?.fanPassSupplyCap !== undefined
+                        ? `${systemState.fanPassMinted.toString()} / ${systemState.fanPassSupplyCap.toString()}`
+                        : "-",
+                  },
+                ]}
+              />
+            </Card>
+          ) : null}
 
           <Card className="organizer-panel-card" surface="glass">
             <h3>Recent admin activity</h3>

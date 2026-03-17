@@ -11,6 +11,7 @@ import {
   WORKSPACE_CONFIGS,
 } from "../../lib/workspaceRouting";
 import { useAppState } from "../../state/useAppState";
+import type { EventDeployment } from "../../types/chainticket";
 import { EventPoster } from "../events/EventPoster";
 import { Badge, ButtonGroup, RiskBanner, Tag, Toast } from "../ui/Primitives";
 import { OnboardingGuide } from "./OnboardingGuide";
@@ -78,12 +79,63 @@ function selectedEventLocation(event: {
   return [event.venueName, event.city, event.countryCode].filter(Boolean).join(" | ");
 }
 
+function eventRailStatus(args: {
+  event: EventDeployment | null;
+  preferredEventId: string | null;
+  locale: "fr" | "en";
+}): { label: string; tone: "success" | "warning" | "info" | "default" } {
+  const { event, preferredEventId, locale } = args;
+
+  if (!event) {
+    return {
+      label: locale === "fr" ? "Aucun event" : "No event",
+      tone: "default",
+    };
+  }
+
+  if (event.ticketEventId === preferredEventId && event.version === "v2") {
+    return {
+      label: locale === "fr" ? "Stack complete live" : "Full stack live",
+      tone: "success",
+    };
+  }
+
+  if (event.version === "v2") {
+    return {
+      label: locale === "fr" ? "Rails avances live" : "Advanced rails live",
+      tone: "info",
+    };
+  }
+
+  if (event.isDemoInspired) {
+    return {
+      label: locale === "fr" ? "Demo legacy" : "Legacy demo",
+      tone: "warning",
+    };
+  }
+
+  return {
+    label: locale === "fr" ? "Rails legacy" : "Legacy rails",
+    tone: "default",
+  };
+}
+
 export function AppLayout() {
   const { locale, t } = useI18n();
   const {
     walletProviders,
     selectedProviderId,
     setSelectedProviderId,
+    embeddedWalletEnabled,
+    embeddedWalletEmail,
+    setEmbeddedWalletEmail,
+    embeddedWalletCode,
+    setEmbeddedWalletCode,
+    embeddedWalletSession,
+    embeddedWalletDevCode,
+    isEmbeddedWalletBusy,
+    requestEmbeddedWalletCode,
+    verifyEmbeddedWalletCode,
     connectWallet,
     disconnectWallet,
     refreshDashboard,
@@ -106,6 +158,7 @@ export function AppLayout() {
     walletCapRemaining,
     venueSafeMode,
     userRoles,
+    connectedProvider,
   } = useAppState();
   const navigate = useNavigate();
   const location = useLocation();
@@ -125,6 +178,25 @@ export function AppLayout() {
           noOpsRole: "Aucun role ops",
           availableEvents: "Evenements disponibles",
           walletProvider: "Provider wallet",
+          fullStackFocus: "Evenement complet live",
+          fullStackBody:
+            "Fan-Fuel, FanPass protege, assurance, collectible evolutif et merch phygital sont actifs sur ce show.",
+          switchFocus: "Basculer le focus",
+          openCanonicalEvent: "Ouvrir l'evenement",
+          fanPassPill: "FanPass 30%",
+          insurancePill: "Assurance live",
+          merchPill: "Merch live",
+          embeddedTitle: "Wallet embarque sponsorise",
+          embeddedBody:
+            "Connexion par e-mail, gas sponsorise par la plateforme pour le mint, l'assurance, les perks et le merch.",
+          embeddedEmail: "E-mail fan",
+          embeddedCode: "Code de verification",
+          embeddedSend: "Envoyer le code",
+          embeddedVerify: "Verifier et connecter",
+          embeddedGas: "Gas sponsorise",
+          embeddedBeta: "Wallet e-mail beta",
+          embeddedOpsNote: "La revente et les actions organizer gardent MetaMask pour l'instant.",
+          embeddedCodeHint: "Code de dev",
         }
       : {
           brandTagline: "Trusted ticketing",
@@ -134,12 +206,56 @@ export function AppLayout() {
           noOpsRole: "No ops role",
           availableEvents: "Available events",
           walletProvider: "Wallet provider",
+          fullStackFocus: "Full-stack event live",
+          fullStackBody:
+            "Fan-Fuel, protected FanPass, insurance, evolving collectible, and phygital merch are active on this show.",
+          switchFocus: "Switch focus",
+          openCanonicalEvent: "Open event",
+          fanPassPill: "FanPass 30%",
+          insurancePill: "Insurance live",
+          merchPill: "Merch live",
+          embeddedTitle: "Sponsored embedded wallet",
+          embeddedBody:
+            "Email login with platform-sponsored gas for mint, insurance, perks, and merch.",
+          embeddedEmail: "Fan email",
+          embeddedCode: "Verification code",
+          embeddedSend: "Send code",
+          embeddedVerify: "Verify and connect",
+          embeddedGas: "Gas sponsored",
+          embeddedBeta: "Email wallet beta",
+          embeddedOpsNote: "Resale and organizer actions still keep MetaMask for now.",
+          embeddedCodeHint: "Dev code",
         };
   const currentEvent =
     availableEvents.find((event) => event.ticketEventId === selectedEventId) ??
     availableEvents[0] ??
     null;
+  const canonicalEvent =
+    availableEvents.find((event) => event.ticketEventId === runtimeConfig.defaultEventId) ??
+    availableEvents.find((event) => event.version === "v2") ??
+    null;
+  const canonicalRailStatus = eventRailStatus({
+    event: canonicalEvent,
+    preferredEventId: runtimeConfig.defaultEventId,
+    locale,
+  });
+  const currentRailStatus = eventRailStatus({
+    event: currentEvent,
+    preferredEventId: runtimeConfig.defaultEventId,
+    locale,
+  });
+  const showCanonicalPrompt =
+    Boolean(canonicalEvent) &&
+    Boolean(currentEvent) &&
+    canonicalEvent!.ticketEventId !== currentEvent!.ticketEventId;
   const walletStatusTone = walletChainId === contractConfig.chainId ? "success" : "warning";
+  const selectedWalletProvider =
+    walletProviders.find((provider) => provider.id === selectedProviderId) ?? walletProviders[0] ?? null;
+  const showEmbeddedWalletPanel =
+    embeddedWalletEnabled &&
+    (selectedWalletProvider?.kind === "embedded" || connectedProvider?.kind === "embedded");
+  const usingEmbeddedWallet =
+    connectedProvider?.kind === "embedded" || selectedWalletProvider?.kind === "embedded";
   const mainNavigation = useMemo(
     () =>
       [
@@ -272,6 +388,7 @@ export function AppLayout() {
               <span className="workspace-wallet-text">
                 {walletAddress ? formatAddress(walletAddress, 6) : t("networkNotConnected")}
               </span>
+              {usingEmbeddedWallet ? <Tag tone="info">{topbarCopy.embeddedBeta}</Tag> : null}
             </div>
 
             <ButtonGroup compact>
@@ -284,7 +401,9 @@ export function AppLayout() {
                 {walletProviders.length === 0 ? <option value="">{t("noWalletFound")}</option> : null}
                 {walletProviders.map((provider) => (
                   <option key={provider.id} value={provider.id}>
-                    {provider.name}
+                    {provider.kind === "embedded"
+                      ? `${provider.name} · ${topbarCopy.embeddedGas}`
+                      : provider.name}
                   </option>
                 ))}
               </select>
@@ -296,6 +415,10 @@ export function AppLayout() {
               >
                 {isConnecting
                   ? t("connecting")
+                  : selectedWalletProvider?.kind === "embedded" && !walletAddress
+                    ? embeddedWalletCode.trim().length > 0
+                      ? topbarCopy.embeddedVerify
+                      : topbarCopy.embeddedSend
                   : walletAddress
                     ? t("reconnectWallet")
                     : t("connectWallet")}
@@ -311,6 +434,79 @@ export function AppLayout() {
             </ButtonGroup>
           </div>
         </header>
+
+        {showEmbeddedWalletPanel ? (
+          <section className="workspace-embedded-panel" data-testid="embedded-wallet-panel">
+            <div className="workspace-embedded-copy">
+              <div className="workspace-embedded-heading">
+                <strong>{topbarCopy.embeddedTitle}</strong>
+                <Tag tone="info">{topbarCopy.embeddedBeta}</Tag>
+                <Tag tone="success">{topbarCopy.embeddedGas}</Tag>
+              </div>
+              <p>{topbarCopy.embeddedBody}</p>
+              <small>{topbarCopy.embeddedOpsNote}</small>
+            </div>
+
+            <div className="workspace-embedded-form">
+              <label className="workspace-embedded-field">
+                <span>{topbarCopy.embeddedEmail}</span>
+                <input
+                  type="email"
+                  value={embeddedWalletEmail}
+                  onChange={(event) => setEmbeddedWalletEmail(event.target.value)}
+                  placeholder="fan@chainticket.xyz"
+                  disabled={isConnecting || isEmbeddedWalletBusy}
+                />
+              </label>
+
+              <label className="workspace-embedded-field">
+                <span>{topbarCopy.embeddedCode}</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={embeddedWalletCode}
+                  onChange={(event) => setEmbeddedWalletCode(event.target.value)}
+                  placeholder="123456"
+                  disabled={isConnecting || isEmbeddedWalletBusy}
+                />
+              </label>
+
+              <ButtonGroup compact>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => void requestEmbeddedWalletCode()}
+                  disabled={isConnecting || isEmbeddedWalletBusy}
+                >
+                  {topbarCopy.embeddedSend}
+                </button>
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => void verifyEmbeddedWalletCode()}
+                  disabled={isConnecting || isEmbeddedWalletBusy}
+                >
+                  {topbarCopy.embeddedVerify}
+                </button>
+              </ButtonGroup>
+            </div>
+
+            <div className="workspace-embedded-meta">
+              {embeddedWalletSession ? (
+                <>
+                  <Tag tone="success">{formatAddress(embeddedWalletSession.walletAddress, 6)}</Tag>
+                  <Tag tone="default">{embeddedWalletSession.email}</Tag>
+                </>
+              ) : null}
+              {embeddedWalletDevCode ? (
+                <Tag tone="warning">
+                  {topbarCopy.embeddedCodeHint}: {embeddedWalletDevCode}
+                </Tag>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
 
         <section
           className={[
@@ -335,6 +531,7 @@ export function AppLayout() {
               <Tag tone="info">
                 {t("walletCapRemaining")}: {walletCapRemaining !== null ? walletCapRemaining.toString() : "-"}
               </Tag>
+              <Tag tone={currentRailStatus.tone}>{currentRailStatus.label}</Tag>
               {workspace === "explore" && currentEvent?.category ? (
                 <Tag tone="default">{currentEvent.category}</Tag>
               ) : null}
@@ -350,6 +547,14 @@ export function AppLayout() {
                   {selectedEventLocation(currentEvent) ||
                     topbarCopy.dedicatedOps}
                 </span>
+                <div className="workspace-event-status-row">
+                  <Tag tone={currentRailStatus.tone}>{currentRailStatus.label}</Tag>
+                  {currentEvent?.version === "v2" && currentEvent?.fanPassAllocationBps ? (
+                    <Tag tone="default">
+                      {topbarCopy.fanPassPill}
+                    </Tag>
+                  ) : null}
+                </div>
               </div>
               <div className="workspace-role-row">
                 {roleTags.length === 0 ? (
@@ -372,6 +577,15 @@ export function AppLayout() {
                   <strong>{currentEvent.name}</strong>
                   <span>{formatEventStart(currentEvent.startsAt)}</span>
                   <em>{selectedEventLocation(currentEvent) || currentEvent.ticketEventId}</em>
+                  <div className="workspace-event-status-row">
+                    <Tag tone={currentRailStatus.tone}>{currentRailStatus.label}</Tag>
+                    {currentEvent.version === "v2" && currentEvent.fanPassAllocationBps ? (
+                      <Tag tone="default">{topbarCopy.fanPassPill}</Tag>
+                    ) : null}
+                    {currentEvent.version === "v2" && currentEvent.insurancePool ? (
+                      <Tag tone="info">{topbarCopy.insurancePill}</Tag>
+                    ) : null}
+                  </div>
                   <Link
                     to={`/app/explore/${currentEvent.ticketEventId}`}
                     className="button-link ghost compact-link"
@@ -384,19 +598,70 @@ export function AppLayout() {
           ) : null}
         </section>
 
+        {showCanonicalPrompt && canonicalEvent ? (
+          <section className="workspace-canonical-banner" data-testid="workspace-canonical-banner">
+            <div className="workspace-canonical-copy">
+              <small>{topbarCopy.fullStackFocus}</small>
+              <strong>{canonicalEvent.name}</strong>
+              <p>{topbarCopy.fullStackBody}</p>
+            </div>
+            <div className="workspace-canonical-actions">
+              <Tag tone={canonicalRailStatus.tone}>{canonicalRailStatus.label}</Tag>
+              <ButtonGroup compact>
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => handleEventSwitch(canonicalEvent.ticketEventId)}
+                >
+                  {topbarCopy.switchFocus}
+                </button>
+                <Link
+                  to={`/app/explore/${canonicalEvent.ticketEventId}`}
+                  className="button-link ghost"
+                  onClick={() => handleEventSwitch(canonicalEvent.ticketEventId)}
+                >
+                  {topbarCopy.openCanonicalEvent}
+                </Link>
+              </ButtonGroup>
+            </div>
+          </section>
+        ) : null}
+
         {availableEvents.length > 1 ? (
           <section className="workspace-event-strip" aria-label={topbarCopy.availableEvents}>
-            {availableEvents.map((event) => (
-              <button
-                key={event.ticketEventId}
-                type="button"
-                className={event.ticketEventId === selectedEventId ? "workspace-event-pill active" : "workspace-event-pill"}
-                onClick={() => handleEventSwitch(event.ticketEventId)}
-              >
-                <strong>{event.name}</strong>
-                <span>{formatEventStart(event.startsAt)}</span>
-              </button>
-            ))}
+            {availableEvents.map((event) => {
+              const eventStatus = eventRailStatus({
+                event,
+                preferredEventId: runtimeConfig.defaultEventId,
+                locale,
+              });
+
+              return (
+                <button
+                  key={event.ticketEventId}
+                  type="button"
+                  className={event.ticketEventId === selectedEventId ? "workspace-event-pill active" : "workspace-event-pill"}
+                  onClick={() => handleEventSwitch(event.ticketEventId)}
+                >
+                  <div className="workspace-event-pill-copy">
+                    <strong>{event.name}</strong>
+                    <span>{formatEventStart(event.startsAt)}</span>
+                  </div>
+                  <div className="workspace-event-pill-meta">
+                    <Tag tone={eventStatus.tone}>{eventStatus.label}</Tag>
+                    {event.version === "v2" && event.fanPassAllocationBps ? (
+                      <Tag tone="default">{topbarCopy.fanPassPill}</Tag>
+                    ) : null}
+                    {event.version === "v2" && event.insurancePool ? (
+                      <Tag tone="info">{topbarCopy.insurancePill}</Tag>
+                    ) : null}
+                    {event.version === "v2" && event.merchStore ? (
+                      <Tag tone="default">{topbarCopy.merchPill}</Tag>
+                    ) : null}
+                  </div>
+                </button>
+              );
+            })}
           </section>
         ) : null}
 

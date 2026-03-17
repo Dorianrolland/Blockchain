@@ -2,6 +2,11 @@
 /* tslint:disable */
 /* eslint-disable */
 export { ICheckInRegistry__factory } from './ICheckInRegistry__factory.js';
+export { ICollectibleNFT__factory } from './ICollectibleNFT__factory.js';
 export { IERC4494__factory } from './IERC4494__factory.js';
+export { IFanFuelBank__factory } from './IFanFuelBank__factory.js';
+export { IFanScoreRegistry__factory } from './IFanScoreRegistry__factory.js';
+export { IInsurancePool__factory } from './IInsurancePool__factory.js';
 export { ITicketNFT__factory } from './ITicketNFT__factory.js';
+export { ITicketNFTV2__factory } from './ITicketNFTV2__factory.js';
 export { ITicketSystemState__factory } from './ITicketSystemState__factory.js';

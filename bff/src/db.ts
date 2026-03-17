@@ -74,13 +74,25 @@ CREATE TABLE IF NOT EXISTS event_deployments (
   ticket_event_id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   symbol TEXT NOT NULL,
+  version TEXT,
+  artist_id TEXT,
+  series_id TEXT,
   primary_price_wei TEXT NOT NULL,
   max_supply TEXT NOT NULL,
+  fan_pass_allocation_bps TEXT,
+  artist_royalty_bps TEXT,
   treasury TEXT NOT NULL,
   admin TEXT NOT NULL,
   ticket_nft_address TEXT NOT NULL UNIQUE,
   marketplace_address TEXT NOT NULL UNIQUE,
   checkin_registry_address TEXT NOT NULL UNIQUE,
+  collectible_contract TEXT,
+  fan_score_registry TEXT,
+  fan_fuel_bank TEXT,
+  insurance_pool TEXT,
+  oracle_adapter TEXT,
+  merch_store TEXT,
+  perk_manager TEXT,
   deployment_block BIGINT NOT NULL,
   registered_at BIGINT NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -202,10 +214,54 @@ CREATE UNIQUE INDEX IF NOT EXISTS demo_event_catalog_status_event_idx
 
 CREATE UNIQUE INDEX IF NOT EXISTS demo_event_catalog_status_source_idx
   ON demo_event_catalog (lineup_status, source_event_id);
+
+CREATE TABLE IF NOT EXISTS embedded_wallet_login_challenges (
+  email TEXT PRIMARY KEY,
+  code_hash TEXT NOT NULL,
+  wallet_address TEXT NOT NULL,
+  expires_at BIGINT NOT NULL,
+  consumed_at BIGINT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS embedded_wallet_login_challenges_expires_idx
+  ON embedded_wallet_login_challenges (expires_at);
+
+CREATE TABLE IF NOT EXISTS embedded_wallet_sessions (
+  session_id TEXT PRIMARY KEY,
+  email TEXT NOT NULL,
+  wallet_address TEXT NOT NULL,
+  issued_at BIGINT NOT NULL,
+  expires_at BIGINT NOT NULL,
+  revoked_at BIGINT,
+  last_used_at BIGINT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS embedded_wallet_sessions_wallet_idx
+  ON embedded_wallet_sessions (wallet_address, expires_at DESC);
+`;
+
+const eventDeploymentMigrationSql = `
+ALTER TABLE event_deployments ADD COLUMN IF NOT EXISTS version TEXT;
+ALTER TABLE event_deployments ADD COLUMN IF NOT EXISTS artist_id TEXT;
+ALTER TABLE event_deployments ADD COLUMN IF NOT EXISTS series_id TEXT;
+ALTER TABLE event_deployments ADD COLUMN IF NOT EXISTS fan_pass_allocation_bps TEXT;
+ALTER TABLE event_deployments ADD COLUMN IF NOT EXISTS artist_royalty_bps TEXT;
+ALTER TABLE event_deployments ADD COLUMN IF NOT EXISTS collectible_contract TEXT;
+ALTER TABLE event_deployments ADD COLUMN IF NOT EXISTS fan_score_registry TEXT;
+ALTER TABLE event_deployments ADD COLUMN IF NOT EXISTS fan_fuel_bank TEXT;
+ALTER TABLE event_deployments ADD COLUMN IF NOT EXISTS insurance_pool TEXT;
+ALTER TABLE event_deployments ADD COLUMN IF NOT EXISTS oracle_adapter TEXT;
+ALTER TABLE event_deployments ADD COLUMN IF NOT EXISTS merch_store TEXT;
+ALTER TABLE event_deployments ADD COLUMN IF NOT EXISTS perk_manager TEXT;
 `;
 
 export async function initDatabase(): Promise<void> {
   await pool.query(schemaSql);
+  await pool.query(eventDeploymentMigrationSql);
   logger.info("Postgres schema is ready.");
 }
 
@@ -298,13 +354,25 @@ export interface EventDeploymentRow {
   ticket_event_id: string;
   name: string;
   symbol: string;
+  version: string | null;
+  artist_id: string | null;
+  series_id: string | null;
   primary_price_wei: string;
   max_supply: string;
+  fan_pass_allocation_bps: string | null;
+  artist_royalty_bps: string | null;
   treasury: string;
   admin: string;
   ticket_nft_address: string;
   marketplace_address: string;
   checkin_registry_address: string;
+  collectible_contract: string | null;
+  fan_score_registry: string | null;
+  fan_fuel_bank: string | null;
+  insurance_pool: string | null;
+  oracle_adapter: string | null;
+  merch_store: string | null;
+  perk_manager: string | null;
   deployment_block: string;
   registered_at: string;
 }
@@ -319,27 +387,54 @@ export async function upsertEventDeployment(
         ticket_event_id,
         name,
         symbol,
+        version,
+        artist_id,
+        series_id,
         primary_price_wei,
         max_supply,
+        fan_pass_allocation_bps,
+        artist_royalty_bps,
         treasury,
         admin,
         ticket_nft_address,
         marketplace_address,
         checkin_registry_address,
+        collectible_contract,
+        fan_score_registry,
+        fan_fuel_bank,
+        insurance_pool,
+        oracle_adapter,
+        merch_store,
+        perk_manager,
         deployment_block,
         registered_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+        $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24
+      )
       ON CONFLICT (ticket_event_id) DO UPDATE
       SET name = EXCLUDED.name,
           symbol = EXCLUDED.symbol,
+          version = EXCLUDED.version,
+          artist_id = EXCLUDED.artist_id,
+          series_id = EXCLUDED.series_id,
           primary_price_wei = EXCLUDED.primary_price_wei,
           max_supply = EXCLUDED.max_supply,
+          fan_pass_allocation_bps = EXCLUDED.fan_pass_allocation_bps,
+          artist_royalty_bps = EXCLUDED.artist_royalty_bps,
           treasury = EXCLUDED.treasury,
           admin = EXCLUDED.admin,
           ticket_nft_address = EXCLUDED.ticket_nft_address,
           marketplace_address = EXCLUDED.marketplace_address,
           checkin_registry_address = EXCLUDED.checkin_registry_address,
+          collectible_contract = EXCLUDED.collectible_contract,
+          fan_score_registry = EXCLUDED.fan_score_registry,
+          fan_fuel_bank = EXCLUDED.fan_fuel_bank,
+          insurance_pool = EXCLUDED.insurance_pool,
+          oracle_adapter = EXCLUDED.oracle_adapter,
+          merch_store = EXCLUDED.merch_store,
+          perk_manager = EXCLUDED.perk_manager,
           deployment_block = EXCLUDED.deployment_block,
           registered_at = EXCLUDED.registered_at,
           updated_at = NOW()
@@ -348,13 +443,25 @@ export async function upsertEventDeployment(
       deployment.ticket_event_id,
       deployment.name,
       deployment.symbol,
+      deployment.version,
+      deployment.artist_id,
+      deployment.series_id,
       deployment.primary_price_wei,
       deployment.max_supply,
+      deployment.fan_pass_allocation_bps,
+      deployment.artist_royalty_bps,
       deployment.treasury,
       deployment.admin,
       deployment.ticket_nft_address,
       deployment.marketplace_address,
       deployment.checkin_registry_address,
+      deployment.collectible_contract,
+      deployment.fan_score_registry,
+      deployment.fan_fuel_bank,
+      deployment.insurance_pool,
+      deployment.oracle_adapter,
+      deployment.merch_store,
+      deployment.perk_manager,
       deployment.deployment_block,
       deployment.registered_at,
     ],
@@ -368,13 +475,25 @@ export async function getEventDeployments(): Promise<EventDeploymentRow[]> {
         ticket_event_id,
         name,
         symbol,
+        version,
+        artist_id,
+        series_id,
         primary_price_wei,
         max_supply,
+        fan_pass_allocation_bps,
+        artist_royalty_bps,
         treasury,
         admin,
         ticket_nft_address,
         marketplace_address,
         checkin_registry_address,
+        collectible_contract,
+        fan_score_registry,
+        fan_fuel_bank,
+        insurance_pool,
+        oracle_adapter,
+        merch_store,
+        perk_manager,
         deployment_block,
         registered_at
       FROM event_deployments

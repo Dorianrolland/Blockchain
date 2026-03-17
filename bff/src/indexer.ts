@@ -3,7 +3,13 @@ import { EventEmitter } from "node:events";
 import { Contract, JsonRpcProvider } from "ethers";
 import type { PoolClient } from "pg";
 
-import { CHECKIN_ABI, FACTORY_ABI, MARKETPLACE_ABI, TICKET_NFT_ABI } from "./abi.js";
+import {
+  CHECKIN_ABI,
+  FACTORY_ABI,
+  FACTORY_V2_ABI,
+  MARKETPLACE_ABI,
+  TICKET_NFT_ABI,
+} from "./abi.js";
 import { config } from "./config.js";
 import {
   getChainStateNumber,
@@ -68,10 +74,14 @@ export interface IndexerStatus {
 }
 
 interface CachedSystemState {
+  version: "v1" | "v2";
   primaryPriceWei: string;
+  insurancePremiumWei: string | null;
   maxSupply: string;
   totalMinted: string;
   maxPerWallet: string;
+  fanPassSupplyCap: string | null;
+  fanPassMinted: string | null;
   paused: boolean;
   collectibleMode: boolean;
   baseTokenURI: string;
@@ -91,6 +101,14 @@ function toBigInt(value: unknown): bigint {
 
 function normalizeAddress(value: string): string {
   return value.toLowerCase();
+}
+
+function normalizeOptionalString(value: string | undefined): string {
+  return value ?? "";
+}
+
+function normalizeOptionalAddress(value: string | undefined): string {
+  return value ? value.toLowerCase() : "";
 }
 
 function eventId(ticketEventId: string, txHash: string, logIndex: number, type: string): string {
@@ -186,41 +204,133 @@ function serializePayload(value: unknown): string {
   );
 }
 
+function readResultIndex(result: unknown[] | Record<number, unknown>, index: number): unknown {
+  try {
+    return result[index];
+  } catch {
+    return undefined;
+  }
+}
+
+function isAddressLike(value: unknown): value is string {
+  return typeof value === "string" && /^0x[a-fA-F0-9]{40}$/.test(value);
+}
+
 function parseFactoryDeployment(raw: unknown): TicketEventDeployment {
   const value = raw as {
     eventId?: unknown;
     name?: unknown;
     symbol?: unknown;
+    artistId?: unknown;
+    seriesId?: unknown;
     primaryPrice?: unknown;
     maxSupply?: unknown;
+    fanPassAllocationBps?: unknown;
+    artistRoyaltyBps?: unknown;
     treasury?: unknown;
     admin?: unknown;
     ticketNFT?: unknown;
     marketplace?: unknown;
     checkInRegistry?: unknown;
+    collectibleContract?: unknown;
+    fanScoreRegistry?: unknown;
+    fanFuelBank?: unknown;
+    insurancePool?: unknown;
+    oracleAdapter?: unknown;
+    merchStore?: unknown;
+    perkManager?: unknown;
     deploymentBlock?: unknown;
     registeredAt?: unknown;
   } & unknown[];
+  const at = (index: number) => readResultIndex(value, index);
+  const index3 = at(3);
+  const index4 = at(4);
+  const index5 = at(5);
+  const index6 = at(6);
+  const index7 = at(7);
+  const index8 = at(8);
+  const index9 = at(9);
+  const index10 = at(10);
+  const index11 = at(11);
+  const index12 = at(12);
+  const index13 = at(13);
+  const index14 = at(14);
+  const index15 = at(15);
+  const index16 = at(16);
+  const index17 = at(17);
+  const index18 = at(18);
+  const index19 = at(19);
+  const index20 = at(20);
+  const hasPerkManager =
+    value.perkManager !== undefined || isAddressLike(index20);
+  const isV2 =
+    value.artistId !== undefined || (index3 !== undefined && typeof index3 === "string");
+  const deploymentBlockIndex = hasPerkManager ? 21 : 20;
+  const registeredAtIndex = hasPerkManager ? 22 : 21;
 
   return {
     ticketEventId: String(value.eventId ?? value[0] ?? ""),
     name: String(value.name ?? value[1] ?? ""),
     symbol: String(value.symbol ?? value[2] ?? ""),
-    primaryPriceWei: String(value.primaryPrice ?? value[3] ?? "0"),
-    maxSupply: String(value.maxSupply ?? value[4] ?? "0"),
-    treasury: String(value.treasury ?? value[5] ?? ""),
-    admin: String(value.admin ?? value[6] ?? ""),
-    ticketNftAddress: String(value.ticketNFT ?? value[7] ?? ""),
-    marketplaceAddress: String(value.marketplace ?? value[8] ?? ""),
-    checkInRegistryAddress: String(value.checkInRegistry ?? value[9] ?? ""),
-    deploymentBlock: Number(value.deploymentBlock ?? value[10] ?? 0),
-    registeredAt: Number(value.registeredAt ?? value[11] ?? 0),
+    version: isV2 ? "v2" : "v1",
+    artistId: isV2 ? String(value.artistId ?? index3 ?? "") : undefined,
+    seriesId: isV2 ? String(value.seriesId ?? index4 ?? "") : undefined,
+    primaryPriceWei: String(value.primaryPrice ?? index5 ?? index3 ?? "0"),
+    maxSupply: String(value.maxSupply ?? index6 ?? index4 ?? "0"),
+    fanPassAllocationBps:
+      isV2 && (value.fanPassAllocationBps !== undefined || index7 !== undefined)
+        ? String(value.fanPassAllocationBps ?? index7 ?? "0")
+        : undefined,
+    artistRoyaltyBps:
+      isV2 && (value.artistRoyaltyBps !== undefined || index8 !== undefined)
+        ? String(value.artistRoyaltyBps ?? index8 ?? "0")
+        : undefined,
+    treasury: String(value.treasury ?? index9 ?? index5 ?? ""),
+    admin: String(value.admin ?? index10 ?? index6 ?? ""),
+    ticketNftAddress: String(value.ticketNFT ?? index11 ?? index7 ?? ""),
+    marketplaceAddress: String(value.marketplace ?? index12 ?? index8 ?? ""),
+    checkInRegistryAddress: String(value.checkInRegistry ?? index13 ?? index9 ?? ""),
+    collectibleContract:
+      isV2 && (value.collectibleContract !== undefined || index14 !== undefined)
+        ? String(value.collectibleContract ?? index14 ?? "")
+        : undefined,
+    fanScoreRegistry:
+      isV2 && (value.fanScoreRegistry !== undefined || index15 !== undefined)
+        ? String(value.fanScoreRegistry ?? index15 ?? "")
+        : undefined,
+    fanFuelBank:
+      isV2 && (value.fanFuelBank !== undefined || index16 !== undefined)
+        ? String(value.fanFuelBank ?? index16 ?? "")
+        : undefined,
+    insurancePool:
+      isV2 && (value.insurancePool !== undefined || index17 !== undefined)
+        ? String(value.insurancePool ?? index17 ?? "")
+        : undefined,
+    oracleAdapter:
+      isV2 && (value.oracleAdapter !== undefined || index18 !== undefined)
+        ? String(value.oracleAdapter ?? index18 ?? "")
+        : undefined,
+    merchStore:
+      isV2 && (value.merchStore !== undefined || index19 !== undefined)
+        ? String(value.merchStore ?? index19 ?? "")
+        : undefined,
+    perkManager:
+      isV2 && hasPerkManager
+        ? String(value.perkManager ?? index20 ?? "")
+        : undefined,
+    deploymentBlock: Number(
+      value.deploymentBlock ?? at(deploymentBlockIndex) ?? index10 ?? 0,
+    ),
+    registeredAt: Number(
+      value.registeredAt ?? at(registeredAtIndex) ?? index11 ?? 0,
+    ),
   };
 }
 
 export class ChainIndexer extends EventEmitter {
   private readonly provider: JsonRpcProvider;
   private readonly factoryContract: Contract | null;
+  private readonly factoryContractV2: Contract | null;
 
   private contractSets = new Map<string, ContractSet>();
   private running = false;
@@ -252,6 +362,9 @@ export class ChainIndexer extends EventEmitter {
     this.provider = new JsonRpcProvider(config.rpcUrl, config.chainId);
     this.factoryContract = config.factoryAddress
       ? new Contract(config.factoryAddress, FACTORY_ABI, this.provider)
+      : null;
+    this.factoryContractV2 = config.factoryAddress
+      ? new Contract(config.factoryAddress, FACTORY_V2_ABI, this.provider)
       : null;
   }
 
@@ -326,29 +439,39 @@ export class ChainIndexer extends EventEmitter {
 
     try {
       const [
+        insurancePremium,
         primaryPrice,
         maxSupply,
         totalMinted,
         maxPerWallet,
+        fanPassSupplyCap,
+        fanPassMinted,
         paused,
         collectibleMode,
         baseUris,
       ] =
         await Promise.all([
+          contractSet.ticketContract.insurancePremium().then(String).catch(() => null),
           contractSet.ticketContract.primaryPrice(),
           contractSet.ticketContract.maxSupply(),
           contractSet.ticketContract.totalMinted(),
           contractSet.ticketContract.maxPerWallet(),
+          contractSet.ticketContract.fanPassSupplyCap().then(String).catch(() => null),
+          contractSet.ticketContract.fanPassMinted().then(String).catch(() => null),
           contractSet.ticketContract.paused(),
           contractSet.ticketContract.collectibleMode(),
           contractSet.ticketContract.baseUris().catch(() => ["", ""]),
         ]);
 
       const fresh: CachedSystemState = {
+        version: contractSet.deployment.version ?? "v1",
         primaryPriceWei: String(primaryPrice),
+        insurancePremiumWei: insurancePremium,
         maxSupply: String(maxSupply),
         totalMinted: String(totalMinted),
         maxPerWallet: String(maxPerWallet),
+        fanPassSupplyCap,
+        fanPassMinted,
         paused: Boolean(paused),
         collectibleMode: Boolean(collectibleMode),
         baseTokenURI: String(baseUris[0] ?? ""),
@@ -475,6 +598,7 @@ export class ChainIndexer extends EventEmitter {
       ticketEventId: config.defaultEventId,
       name: config.defaultEventId,
       symbol: "CTK",
+      version: "v1",
       primaryPriceWei: "0",
       maxSupply: "0",
       treasury: "",
@@ -519,12 +643,31 @@ export class ChainIndexer extends EventEmitter {
       left.checkInRegistryAddress.toLowerCase() ===
         right.checkInRegistryAddress.toLowerCase() &&
       left.deploymentBlock === right.deploymentBlock &&
+      (left.version ?? "v1") === (right.version ?? "v1") &&
+      normalizeOptionalString(left.artistId) === normalizeOptionalString(right.artistId) &&
+      normalizeOptionalString(left.seriesId) === normalizeOptionalString(right.seriesId) &&
       left.primaryPriceWei === right.primaryPriceWei &&
       left.maxSupply === right.maxSupply &&
+      normalizeOptionalString(left.fanPassAllocationBps) ===
+        normalizeOptionalString(right.fanPassAllocationBps) &&
+      normalizeOptionalString(left.artistRoyaltyBps) ===
+        normalizeOptionalString(right.artistRoyaltyBps) &&
       left.name === right.name &&
       left.symbol === right.symbol &&
       left.treasury.toLowerCase() === right.treasury.toLowerCase() &&
       left.admin.toLowerCase() === right.admin.toLowerCase() &&
+      normalizeOptionalAddress(left.collectibleContract) ===
+        normalizeOptionalAddress(right.collectibleContract) &&
+      normalizeOptionalAddress(left.fanScoreRegistry) ===
+        normalizeOptionalAddress(right.fanScoreRegistry) &&
+      normalizeOptionalAddress(left.fanFuelBank) ===
+        normalizeOptionalAddress(right.fanFuelBank) &&
+      normalizeOptionalAddress(left.insurancePool) ===
+        normalizeOptionalAddress(right.insurancePool) &&
+      normalizeOptionalAddress(left.oracleAdapter) ===
+        normalizeOptionalAddress(right.oracleAdapter) &&
+      normalizeOptionalAddress(left.merchStore) === normalizeOptionalAddress(right.merchStore) &&
+      normalizeOptionalAddress(left.perkManager) === normalizeOptionalAddress(right.perkManager) &&
       left.registeredAt === right.registeredAt
     );
   }
@@ -559,19 +702,15 @@ export class ChainIndexer extends EventEmitter {
     return minimumIndexedBlock;
   }
 
-  private async fetchDeployments(): Promise<TicketEventDeployment[]> {
-    if (!this.factoryContract) {
-      return [this.createLegacyDeployment()];
-    }
-
-    const totalEvents = Number(await this.factoryContract.totalEvents());
+  private async fetchDeploymentsFromFactory(factoryContract: Contract): Promise<TicketEventDeployment[]> {
+    const totalEvents = Number(await factoryContract.totalEvents());
     if (totalEvents === 0) {
       return [];
     }
 
     const rawDeployments = await Promise.all(
       Array.from({ length: totalEvents }, async (_value, index) =>
-        this.factoryContract?.getEventAt(index),
+        factoryContract.getEventAt(index),
       ),
     );
 
@@ -584,6 +723,31 @@ export class ChainIndexer extends EventEmitter {
         }
         return left.ticketEventId.localeCompare(right.ticketEventId);
       });
+  }
+
+  private async fetchDeployments(): Promise<TicketEventDeployment[]> {
+    if (!this.factoryContract && !this.factoryContractV2) {
+      return [this.createLegacyDeployment()];
+    }
+
+    let lastError: unknown = null;
+    for (const candidate of [this.factoryContractV2, this.factoryContract]) {
+      if (!candidate) {
+        continue;
+      }
+
+      try {
+        return await this.fetchDeploymentsFromFactory(candidate);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    if (lastError) {
+      throw lastError;
+    }
+
+    return [];
   }
 
   private async syncEventDeployments(force = false): Promise<void> {
@@ -630,13 +794,25 @@ export class ChainIndexer extends EventEmitter {
         ticketEventId: persisted.ticket_event_id,
         name: persisted.name,
         symbol: persisted.symbol,
+        version: persisted.version === "v2" ? "v2" : "v1",
+        artistId: persisted.artist_id ?? undefined,
+        seriesId: persisted.series_id ?? undefined,
         primaryPriceWei: persisted.primary_price_wei,
         maxSupply: persisted.max_supply,
+        fanPassAllocationBps: persisted.fan_pass_allocation_bps ?? undefined,
+        artistRoyaltyBps: persisted.artist_royalty_bps ?? undefined,
         treasury: persisted.treasury,
         admin: persisted.admin,
         ticketNftAddress: persisted.ticket_nft_address,
         marketplaceAddress: persisted.marketplace_address,
         checkInRegistryAddress: persisted.checkin_registry_address,
+        collectibleContract: persisted.collectible_contract ?? undefined,
+        fanScoreRegistry: persisted.fan_score_registry ?? undefined,
+        fanFuelBank: persisted.fan_fuel_bank ?? undefined,
+        insurancePool: persisted.insurance_pool ?? undefined,
+        oracleAdapter: persisted.oracle_adapter ?? undefined,
+        merchStore: persisted.merch_store ?? undefined,
+        perkManager: persisted.perk_manager ?? undefined,
         deploymentBlock: Number(persisted.deployment_block),
         registeredAt: Number(persisted.registered_at),
       };
@@ -660,13 +836,25 @@ export class ChainIndexer extends EventEmitter {
           ticket_event_id: deployment.ticketEventId,
           name: deployment.name,
           symbol: deployment.symbol,
+          version: deployment.version ?? "v1",
+          artist_id: deployment.artistId ?? null,
+          series_id: deployment.seriesId ?? null,
           primary_price_wei: deployment.primaryPriceWei,
           max_supply: deployment.maxSupply,
+          fan_pass_allocation_bps: deployment.fanPassAllocationBps ?? null,
+          artist_royalty_bps: deployment.artistRoyaltyBps ?? null,
           treasury: deployment.treasury,
           admin: deployment.admin,
           ticket_nft_address: deployment.ticketNftAddress,
           marketplace_address: deployment.marketplaceAddress,
           checkin_registry_address: deployment.checkInRegistryAddress,
+          collectible_contract: deployment.collectibleContract ?? null,
+          fan_score_registry: deployment.fanScoreRegistry ?? null,
+          fan_fuel_bank: deployment.fanFuelBank ?? null,
+          insurance_pool: deployment.insurancePool ?? null,
+          oracle_adapter: deployment.oracleAdapter ?? null,
+          merch_store: deployment.merchStore ?? null,
+          perk_manager: deployment.perkManager ?? null,
           deployment_block: String(deployment.deploymentBlock),
           registered_at: String(deployment.registeredAt),
         });

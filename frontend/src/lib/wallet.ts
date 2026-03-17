@@ -1,10 +1,10 @@
-import { BrowserProvider, type Signer } from "ethers";
+import { BrowserProvider, type Provider, type Signer } from "ethers";
 
 import type { ContractConfig, WalletProviderInfo } from "../types/chainticket";
 
 export interface ConnectedWallet {
   signer: Signer;
-  provider: BrowserProvider;
+  provider: Provider;
   address: string;
   chainId: number;
   providerInfo: WalletProviderInfo;
@@ -69,6 +69,7 @@ function buildLegacyProviderInfo(provider: EthereumProvider): WalletProviderInfo
   return {
     id: "legacy-injected",
     name: provider.isMetaMask ? "MetaMask" : "Injected Wallet",
+    kind: "injected",
     isMetaMask: Boolean(provider.isMetaMask),
     provider,
   };
@@ -80,6 +81,7 @@ function buildAnnouncedProviderInfo(
   return {
     id: detail.info.uuid,
     name: detail.info.name,
+    kind: "injected",
     icon: detail.info.icon,
     rdns: detail.info.rdns,
     isMetaMask: /metamask/i.test(detail.info.name) || detail.provider.isMetaMask === true,
@@ -146,6 +148,9 @@ export async function connectBrowserWallet(
   if (!provider) {
     throw new Error("No EVM wallet detected. Install MetaMask or another injected wallet.");
   }
+  if (providerInfo?.kind === "embedded") {
+    throw new Error("Embedded wallet connections are handled by the sponsored wallet flow.");
+  }
 
   const resolvedProviderInfo = providerInfo ?? buildLegacyProviderInfo(provider);
   const browserProvider = new BrowserProvider(provider);
@@ -166,10 +171,10 @@ export async function connectBrowserWallet(
 }
 
 export function subscribeWalletLifecycle(
-  provider: EthereumProvider,
+  provider: EthereumProvider | undefined,
   handlers: WalletLifecycleHandlers,
 ): () => void {
-  if (!provider.on || !provider.removeListener) {
+  if (!provider || !provider.on || !provider.removeListener) {
     return () => undefined;
   }
 

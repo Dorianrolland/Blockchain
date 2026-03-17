@@ -28,6 +28,7 @@ const config: ContractConfig = {
 const providerInfo: WalletProviderInfo = {
   id: "wallet-1",
   name: "MetaMask",
+  kind: "injected",
   isMetaMask: true,
   provider: {
     isMetaMask: true,
@@ -85,6 +86,7 @@ function makeClient(overrides: Partial<ChainTicketClient> = {}): ChainTicketClie
     buyTicket: vi.fn().mockResolvedValue(tx("0xbuy")),
     getUserRoles: vi.fn().mockResolvedValue({
       isAdmin: false,
+      isBuybackOperator: false,
       isScannerAdmin: false,
       isPauser: false,
       isScanner: false,
@@ -111,6 +113,10 @@ function Probe() {
       <div data-testid="tx-status">{state.txState.status}</div>
       <div data-testid="activity-count">{state.activity.length}</div>
       <div data-testid="ticket-count">{state.tickets.length}</div>
+      <div data-testid="selected-event-id">{state.selectedEventId}</div>
+      <div data-testid="available-event-ids">
+        {state.availableEvents.map((event) => event.ticketEventId).join(",")}
+      </div>
 
       <button type="button" onClick={() => void state.connectWallet()}>
         connect
@@ -236,6 +242,8 @@ describe("AppStateProvider", () => {
         governanceTimelockAddress: null,
         governanceMinDelaySeconds: 0,
         governancePortalUrl: null,
+        embeddedWalletEnabled: false,
+        embeddedWalletLabel: "Embedded Wallet Beta",
       },
       createClient,
       walletConnector,
@@ -450,6 +458,8 @@ describe("AppStateProvider", () => {
         governanceTimelockAddress: null,
         governanceMinDelaySeconds: 0,
         governancePortalUrl: null,
+        embeddedWalletEnabled: false,
+        embeddedWalletLabel: "Embedded Wallet Beta",
       },
       createClient,
       walletConnector,
@@ -484,6 +494,151 @@ describe("AppStateProvider", () => {
       expect(screen.getByTestId("bff-mode")).toHaveTextContent("online");
     });
     expect(eventSourceUrls).toEqual(["http://localhost:8787/v1/events/stream?eventId=main-event"]);
+  });
+
+  it("prioritizes the canonical full-stack event in the catalog order", async () => {
+    const createClient = vi.fn(() => makeClient());
+    class FakeEventSource {
+      addEventListener() {}
+      removeEventListener() {}
+      close() {}
+    }
+
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url.includes("/v1/events")) {
+        return new Response(
+          JSON.stringify({
+            defaultEventId: "chainticket-upgrade-demo-20260317",
+            items: [
+              {
+                ticketEventId: "demo-paris",
+                name: "Demo Paris",
+                symbol: "DP26",
+                version: "v1",
+                primaryPriceWei: parseEther("0.12").toString(),
+                maxSupply: "100",
+                treasury: "0x00000000000000000000000000000000000000aa",
+                admin: "0x00000000000000000000000000000000000000bb",
+                ticketNftAddress: config.ticketNftAddress,
+                marketplaceAddress: config.marketplaceAddress,
+                checkInRegistryAddress: config.checkInRegistryAddress,
+                deploymentBlock: 100,
+                registeredAt: 0,
+                startsAt: 1_781_740_800_000,
+                isDemoInspired: true,
+              },
+              {
+                ticketEventId: "chainticket-upgrade-demo-20260317",
+                name: "ChainTicket Event",
+                symbol: "CTK",
+                version: "v2",
+                primaryPriceWei: parseEther("0.1").toString(),
+                maxSupply: "100",
+                treasury: "0x00000000000000000000000000000000000000aa",
+                admin: "0x00000000000000000000000000000000000000bb",
+                ticketNftAddress: config.ticketNftAddress,
+                marketplaceAddress: config.marketplaceAddress,
+                checkInRegistryAddress: config.checkInRegistryAddress,
+                deploymentBlock: 101,
+                registeredAt: 1,
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (url.includes("/v1/health")) {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            degraded: false,
+            checkedAt: Date.now(),
+            indexedBlock: 120,
+            latestBlock: 120,
+            lag: 0,
+            stalenessMs: 0,
+            rpcHealthy: true,
+            readModelReady: true,
+            configuredDeploymentBlock: 100,
+            alerts: [],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (url.includes("/v1/system")) {
+        return new Response(
+          JSON.stringify({
+            ticketEventId: "chainticket-upgrade-demo-20260317",
+            version: "v2",
+            primaryPriceWei: parseEther("0.1").toString(),
+            insurancePremiumWei: parseEther("0.01").toString(),
+            maxSupply: "100",
+            totalMinted: "0",
+            maxPerWallet: "2",
+            fanPassSupplyCap: "30",
+            fanPassMinted: "0",
+            paused: false,
+            collectibleMode: false,
+            baseTokenURI: "ipfs://base/",
+            collectibleBaseURI: "ipfs://collectible/",
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (url.includes("/v1/listings")) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+
+      if (url.includes("/v1/market/stats")) {
+        return new Response(
+          JSON.stringify({
+            listingCount: 0,
+            floorPriceWei: null,
+            medianPriceWei: null,
+            maxPriceWei: null,
+            averagePriceWei: null,
+            suggestedListPriceWei: null,
+          }),
+          { status: 200 },
+        );
+      }
+
+      return new Response(JSON.stringify([]), { status: 200 });
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithProvider({
+      runtimeConfig: {
+        apiBaseUrl: "http://localhost:8787",
+        chainEnv: "amoy",
+        featureFlags: [],
+        defaultEventId: "chainticket-upgrade-demo-20260317",
+        factoryAddress: null,
+        governanceTimelockAddress: null,
+        governanceMinDelaySeconds: 0,
+        governancePortalUrl: null,
+        embeddedWalletEnabled: false,
+        embeddedWalletLabel: "Embedded Wallet Beta",
+      },
+      createClient,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("selected-event-id")).toHaveTextContent(
+        "chainticket-upgrade-demo-20260317",
+      );
+    });
+
+    expect(screen.getByTestId("available-event-ids")).toHaveTextContent(
+      "chainticket-upgrade-demo-20260317,demo-paris",
+    );
   });
 
   it("handles success and error transaction flows with tx/activity updates", async () => {
@@ -524,6 +679,8 @@ describe("AppStateProvider", () => {
         governanceTimelockAddress: null,
         governanceMinDelaySeconds: 0,
         governancePortalUrl: null,
+        embeddedWalletEnabled: false,
+        embeddedWalletLabel: "Embedded Wallet Beta",
       },
       createClient,
       walletConnector,

@@ -14,6 +14,7 @@ import type {
 
 export const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 export const DEFAULT_ADMIN_ROLE = `0x${"0".repeat(64)}`;
+export const BUYBACK_ROLE = id("BUYBACK_ROLE");
 export const PAUSER_ROLE = id("PAUSER_ROLE");
 export const SCANNER_ADMIN_ROLE = id("SCANNER_ADMIN_ROLE");
 export const SCANNER_ROLE = id("SCANNER_ROLE");

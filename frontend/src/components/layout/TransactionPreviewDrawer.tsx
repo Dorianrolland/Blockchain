@@ -18,7 +18,8 @@ function preflightSummary(
 
 export function TransactionPreviewDrawer() {
   const { locale, t } = useI18n();
-  const { pendingPreview, setPendingPreview, confirmPendingPreview } = useAppState();
+  const { pendingPreview, setPendingPreview, confirmPendingPreview, connectedProvider } =
+    useAppState();
 
   if (!pendingPreview) {
     return null;
@@ -30,9 +31,31 @@ export function TransactionPreviewDrawer() {
     }
     switch (pendingPreview.action.type) {
       case "mint":
+      case "mint_standard":
+      case "mint_fanpass":
         return t("previewImpactMint");
       case "approve":
         return t("previewImpactApprove");
+      case "checkin_mark_used":
+        return locale === "fr"
+          ? "Le ticket est marque comme utilise on-chain et ne peut plus servir a l'entree."
+          : "The ticket is marked used on-chain and can no longer be used for venue entry.";
+      case "checkin_transform":
+        return locale === "fr"
+          ? "Le ticket est consomme a l'entree puis transforme en collectible envoye au wallet du fan."
+          : "The ticket is consumed at check-in and transformed into a collectible sent to the fan wallet.";
+      case "claim_insurance":
+        return locale === "fr"
+          ? "Le smart contract d'assurance tente de verser le remboursement au wallet proprietaire si l'oracle a ouvert la couverture."
+          : "The insurance contract attempts to pay the ticket owner if the oracle has opened the coverage window.";
+      case "redeem_perk":
+        return locale === "fr"
+          ? "Le perk est consomme on-chain pour ce fan et peut depenser du FanFuel selon les regles d'acces configurees."
+          : "The perk is redeemed on-chain for this fan and may spend FanFuel based on its configured access rules.";
+      case "redeem_merch":
+        return locale === "fr"
+          ? "Le FanFuel est depense on-chain et un twin NFT de merchandising est mint pour prouver l'authenticite de l'objet."
+          : "FanFuel is spent on-chain and a merch twin NFT is minted to prove product authenticity.";
       case "list":
       case "list_with_permit":
         return t("previewImpactList");
@@ -40,6 +63,10 @@ export function TransactionPreviewDrawer() {
         return t("previewImpactCancel");
       case "buy":
         return t("previewImpactBuy");
+      case "organizer_buyback":
+        return locale === "fr"
+          ? "Le FanPass revient au stock organisateur au prix primaire et le vendeur est rembourse."
+          : "The FanPass returns to organizer inventory at primary price and the seller is repaid.";
       default:
         return t("previewImpactGeneric");
     }
@@ -54,7 +81,8 @@ export function TransactionPreviewDrawer() {
       : "error";
   const canConfirm = pendingPreview.preflight ? pendingPreview.preflight.ok : true;
   const needsApprovalGuidance =
-    pendingPreview.action?.type === "list" &&
+    (pendingPreview.action?.type === "list" ||
+      pendingPreview.action?.type === "organizer_buyback") &&
     blockers.some((blocker) => blocker.includes("Marketplace approval missing"));
 
   return (
@@ -84,11 +112,7 @@ export function TransactionPreviewDrawer() {
           title={t("previewRiskTitle")}
           cause={preflightSummary(locale, t, pendingPreview.preflight)}
           impact={impactSummary}
-          action={
-            blockers.length > 0
-              ? blockers.join(" | ")
-              : t("previewRiskActionClear")
-          }
+          action={blockers.length > 0 ? blockers.join(" | ") : t("previewRiskActionClear")}
         />
 
         <InfoList
@@ -110,6 +134,28 @@ export function TransactionPreviewDrawer() {
           ]}
         />
 
+        {connectedProvider?.kind === "embedded" ? (
+          <RiskBanner
+            tone="neutral"
+            title={locale === "fr" ? "Gas sponsorise" : "Gas sponsored"}
+            cause={
+              locale === "fr"
+                ? "Ce wallet e-mail beta envoie la transaction via le rail sponsorise de la plateforme."
+                : "This email wallet beta sends the transaction through the platform-sponsored rail."
+            }
+            impact={
+              locale === "fr"
+                ? "Le fan n'a pas besoin de POL pour ce flux tant qu'il reste dans les actions sponsorisees."
+                : "Fans do not need POL for this flow while they stay inside the sponsored action set."
+            }
+            action={
+              locale === "fr"
+                ? "La revente secondaire et les actions organizer restent sur wallet navigateur pour le moment."
+                : "Secondary resale and organizer actions still stay on a browser wallet for now."
+            }
+          />
+        ) : null}
+
         {warnings.length > 0 ? (
           <InfoList
             entries={warnings.map((warning, index) => ({
@@ -130,13 +176,21 @@ export function TransactionPreviewDrawer() {
             }
             impact={
               locale === "fr"
-                ? "La mise en vente ne peut pas etre signee tant que l'approbation n'est pas confirmee."
-                : "Listing cannot be signed until the approval transaction is confirmed."
+                ? pendingPreview.action?.type === "organizer_buyback"
+                  ? "Le buyback ne peut pas etre signe tant que l'approbation marketplace du FanPass n'est pas confirmee."
+                  : "La mise en vente ne peut pas etre signee tant que l'approbation n'est pas confirmee."
+                : pendingPreview.action?.type === "organizer_buyback"
+                  ? "Buyback cannot be signed until marketplace approval for the FanPass is confirmed."
+                  : "Listing cannot be signed until the approval transaction is confirmed."
             }
             action={
               locale === "fr"
-                ? "Fermez ce drawer, lancez l'approbation, puis rouvrez l'aperçu de mise en vente."
-                : "Close this drawer, run the approval step, then reopen the listing preview."
+                ? pendingPreview.action?.type === "organizer_buyback"
+                  ? "Fermez ce drawer, faites approuver le FanPass pour le marketplace, puis relancez le buyback."
+                  : "Fermez ce drawer, lancez l'approbation, puis rouvrez l'apercu de mise en vente."
+                : pendingPreview.action?.type === "organizer_buyback"
+                  ? "Close this drawer, approve the FanPass for the marketplace, then retry the buyback preview."
+                  : "Close this drawer, run the approval step, then reopen the listing preview."
             }
           />
         ) : null}

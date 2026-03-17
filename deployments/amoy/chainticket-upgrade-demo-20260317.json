@@ -1,0 +1,47 @@
+{
+  "productLine": "upgraded",
+  "network": "amoy",
+  "chainId": 80002,
+  "eventId": "chainticket-upgrade-demo-20260317",
+  "eventName": "ChainTicket Event",
+  "eventSymbol": "CTK",
+  "artistId": "chainticket-demo-artist",
+  "seriesId": "founders-tour-2026",
+  "deploymentBlock": 35309527,
+  "deployedAt": "2026-03-17T11:23:11.000Z",
+  "primaryPriceWei": "100000000000000000",
+  "insurancePremiumWei": "10000000000000000",
+  "maxSupply": "100",
+  "fanPassAllocationBps": "3000",
+  "artistRoyaltyBps": "500",
+  "treasury": "0xF5653Efc3BCAC6Bdc83B7F9E0E3d19b54bAA7204",
+  "attestationSigner": "0xF5653Efc3BCAC6Bdc83B7F9E0E3d19b54bAA7204",
+  "addresses": {
+    "factoryAddress": "0xf32126561c41258FD4780a06F897328c586e0354",
+    "ticketNftAddress": "0xd4213d60832294182A4d5ce82D20538B565efc44",
+    "marketplaceAddress": "0x1f6EC1Aa94135d2F9B041550258864b4f6EC804d",
+    "checkInRegistryAddress": "0x6A36806a87DaE75D4A0523f551686cc3C4c08CAb",
+    "collectibleAddress": "0xf66ea1420e5F2f12E99f48442786D46C2501bF87",
+    "fanScoreRegistryAddress": "0x04f94ebaE19311156b03635b0e572035F1f3C1BD",
+    "fanFuelBankAddress": "0x2756e4c83135d7B96371E314ca843D9b5aEef06B",
+    "insurancePoolAddress": "0xE5FE07BEC7BDD12c81bE9C29C4AC6E23af016015",
+    "oracleAdapterAddress": "0x18CD133d4416C4E3c4E0075e5eB4AD41c2271412",
+    "perkManagerAddress": "0x2209B6BDF1d5bAdb5Ae853FFE802ebCe3302F1eA",
+    "merchTwinAddress": "0xCc98d777AC2724b03B7BFC2eA0f4966d18044A75",
+    "merchStoreAddress": "0xD2Bf36dFE39842339f7B9ecb1512f1e9a6d290DF"
+  },
+  "baseUris": {
+    "ticket": "ipfs://chainticket/base/",
+    "collectible": "ipfs://chainticket/collectible/",
+    "merch": "ipfs://chainticket/merch/"
+  },
+  "seeded": {
+    "perks": [],
+    "skus": [],
+    "weatherPolicy": {
+      "roundId": 1,
+      "payoutBps": 5000,
+      "reportHash": "0x1e0c1211eb167159ad42ba7711844052d92cc870afba77bebf0a31bc382c18a4"
+    }
+  }
+}

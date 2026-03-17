@@ -34,6 +34,14 @@ export const CONTRACT_CONFIG: ContractConfig = {
   marketplaceAddress: import.meta.env.VITE_MARKETPLACE_ADDRESS ?? FALLBACK_ADDRESS,
   checkInRegistryAddress:
     import.meta.env.VITE_CHECKIN_REGISTRY_ADDRESS ?? FALLBACK_ADDRESS,
+  fanFuelBankAddress:
+    import.meta.env.VITE_FAN_FUEL_BANK_ADDRESS?.trim() || undefined,
+  perkManagerAddress:
+    import.meta.env.VITE_PERK_MANAGER_ADDRESS?.trim() || undefined,
+  merchStoreAddress:
+    import.meta.env.VITE_MERCH_STORE_ADDRESS?.trim() || undefined,
+  insurancePoolAddress:
+    import.meta.env.VITE_INSURANCE_POOL_ADDRESS?.trim() || undefined,
 };
 
 export function validateContractConfig(config: ContractConfig): string[] {
@@ -47,6 +55,18 @@ export function validateContractConfig(config: ContractConfig): string[] {
   }
   if (!isAddress(config.checkInRegistryAddress)) {
     issues.push("Invalid VITE_CHECKIN_REGISTRY_ADDRESS");
+  }
+  if (config.fanFuelBankAddress && !isAddress(config.fanFuelBankAddress)) {
+    issues.push("Invalid VITE_FAN_FUEL_BANK_ADDRESS");
+  }
+  if (config.perkManagerAddress && !isAddress(config.perkManagerAddress)) {
+    issues.push("Invalid VITE_PERK_MANAGER_ADDRESS");
+  }
+  if (config.merchStoreAddress && !isAddress(config.merchStoreAddress)) {
+    issues.push("Invalid VITE_MERCH_STORE_ADDRESS");
+  }
+  if (config.insurancePoolAddress && !isAddress(config.insurancePoolAddress)) {
+    issues.push("Invalid VITE_INSURANCE_POOL_ADDRESS");
   }
   if (config.deploymentBlock < 0 || !Number.isInteger(config.deploymentBlock)) {
     issues.push("VITE_DEPLOYMENT_BLOCK must be a positive integer");

@@ -1,5 +1,8 @@
+import { useState } from "react";
+
 import {
   Badge,
+  ButtonGroup,
   Card,
   EmptyState,
   InfoList,
@@ -25,7 +28,20 @@ function percentageDelta(primaryPrice: bigint | null, resalePrice: bigint | null
 
 export function OrganizerSalesPage() {
   const { locale } = useI18n();
-  const { listings, marketStats, systemState, indexedReadsAvailable } = useAppState();
+  const {
+    listings,
+    marketStats,
+    systemState,
+    indexedReadsAvailable,
+    availableEvents,
+    selectedEventId,
+    walletAddress,
+    connectWallet,
+    preparePreview,
+    userRoles,
+    setErrorMessage,
+  } = useAppState();
+  const [buybackTokenIdInput, setBuybackTokenIdInput] = useState("");
 
   const copy =
     locale === "fr"
@@ -51,6 +67,20 @@ export function OrganizerSalesPage() {
           listingCount: "Nombre d'annonces",
           suggestedPrice: "Prix suggere",
           maxPrice: "Prix visible max",
+          buybackTitle: "Buyback FanPass",
+          buybackSubtitle:
+            "Reprenez un FanPass au prix primaire depuis le cockpit ops, avec preview et controle d'approbation.",
+          buybackPrice: "Prix de buyback",
+          buybackScope: "Scope",
+          buybackRole: "Role",
+          buybackToken: "Token FanPass",
+          buybackAction: "Lancer le buyback",
+          buybackConnect: "Connecter le wallet",
+          buybackScopeValue: "FanPass uniquement",
+          buybackRoleOk: "BUYBACK_ROLE actif",
+          buybackRoleMissing: "BUYBACK_ROLE manquant",
+          buybackTokenPlaceholder: "Ex: 42",
+          buybackInvalidToken: "Entrez un token id numerique valide.",
         }
       : {
           title: "Sales & resale",
@@ -74,9 +104,70 @@ export function OrganizerSalesPage() {
           listingCount: "Listing count",
           suggestedPrice: "Suggested list price",
           maxPrice: "Highest visible price",
+          buybackTitle: "FanPass buyback",
+          buybackSubtitle:
+            "Take back a FanPass at primary price from the ops cockpit with preview and approval checks.",
+          buybackPrice: "Buyback price",
+          buybackScope: "Scope",
+          buybackRole: "Role",
+          buybackToken: "FanPass token",
+          buybackAction: "Run buyback",
+          buybackConnect: "Connect wallet",
+          buybackScopeValue: "FanPass only",
+          buybackRoleOk: "BUYBACK_ROLE active",
+          buybackRoleMissing: "BUYBACK_ROLE missing",
+          buybackTokenPlaceholder: "Example: 42",
+          buybackInvalidToken: "Enter a valid numeric token id.",
         };
 
   const primaryPrice = systemState?.primaryPrice ?? null;
+  const selectedEvent =
+    availableEvents.find((event) => event.ticketEventId === selectedEventId) ?? null;
+  const canRunBuyback =
+    (selectedEvent?.version ?? "v1") === "v2" && (userRoles.isAdmin || userRoles.isBuybackOperator);
+
+  const runBuyback = async () => {
+    if (!walletAddress) {
+      await connectWallet();
+      return;
+    }
+    if (!canRunBuyback) {
+      setErrorMessage(
+        locale === "fr"
+          ? "Le wallet courant n'a pas le role BUYBACK_ROLE."
+          : "The current wallet does not have BUYBACK_ROLE.",
+      );
+      return;
+    }
+    if (!/^\d+$/.test(buybackTokenIdInput.trim())) {
+      setErrorMessage(copy.buybackInvalidToken);
+      return;
+    }
+
+    const tokenId = BigInt(buybackTokenIdInput.trim());
+    await preparePreview({
+      label: copy.buybackTitle,
+      description: copy.buybackSubtitle,
+      action: { type: "organizer_buyback", tokenId },
+      details: [
+        locale === "fr"
+          ? "Verifie le role buyback, la classe FanPass, l'etat d'usage et l'approbation marketplace."
+          : "Checks buyback role, FanPass class, usage state, and marketplace approval.",
+        primaryPrice
+          ? `${copy.buybackPrice}: ${formatPol(primaryPrice)} POL`
+          : copy.buybackPrice,
+        locale === "fr"
+          ? "Le paiement repart vers le vendeur et le ticket revient au stock organisateur."
+          : "Payment goes back to the seller and the ticket returns to organizer inventory.",
+      ],
+      run: async (client) => {
+        if (!client.organizerBuyback) {
+          throw new Error("Organizer buyback is unavailable in the current client.");
+        }
+        return client.organizerBuyback(tokenId);
+      },
+    });
+  };
 
   return (
     <div className="route-stack organizer-sales-route" data-testid="organizer-sales-page">
@@ -120,6 +211,57 @@ export function OrganizerSalesPage() {
           <strong>{percentageDelta(primaryPrice, marketStats?.averagePrice ?? null)}</strong>
         </Card>
       </section>
+
+      {selectedEvent?.version === "v2" ? (
+        <Panel className="ops-sales-panel" surface="glass">
+          <SectionHeader title={copy.buybackTitle} subtitle={copy.buybackSubtitle} />
+          <div className="organizer-cockpit-grid">
+            <Card className="organizer-panel-card" surface="accent">
+              <label>
+                {copy.buybackToken}
+                <input
+                  value={buybackTokenIdInput}
+                  onChange={(event) => setBuybackTokenIdInput(event.target.value)}
+                  placeholder={copy.buybackTokenPlaceholder}
+                  inputMode="numeric"
+                />
+              </label>
+              <ButtonGroup>
+                {walletAddress ? (
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={() => void runBuyback()}
+                    disabled={!canRunBuyback}
+                  >
+                    {copy.buybackAction}
+                  </button>
+                ) : (
+                  <button type="button" className="primary" onClick={() => void connectWallet()}>
+                    {copy.buybackConnect}
+                  </button>
+                )}
+              </ButtonGroup>
+              <InfoList
+                entries={[
+                  {
+                    label: copy.buybackPrice,
+                    value: primaryPrice ? `${formatPol(primaryPrice)} POL` : "-",
+                  },
+                  {
+                    label: copy.buybackScope,
+                    value: copy.buybackScopeValue,
+                  },
+                  {
+                    label: copy.buybackRole,
+                    value: canRunBuyback ? copy.buybackRoleOk : copy.buybackRoleMissing,
+                  },
+                ]}
+              />
+            </Card>
+          </div>
+        </Panel>
+      ) : null}
 
       <Panel className="ops-sales-panel" surface="glass">
         <SectionHeader title={copy.listingTitle} subtitle={copy.listingSubtitle} />

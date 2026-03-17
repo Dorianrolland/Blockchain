@@ -9,6 +9,8 @@ const dbMock = vi.hoisted(() => ({
 vi.mock("./db.js", () => dbMock);
 
 import {
+  getEventDeployments,
+  getFanTicketProfileStats,
   getMarketStats,
   getOperationalSummary,
   getTicketsByOwner,
@@ -127,5 +129,97 @@ describe("repository", () => {
         },
       ],
     });
+  });
+
+  it("returns current and listed ticket counts for a fan profile view", async () => {
+    dbMock.pool.query.mockResolvedValueOnce({
+      rows: [
+        {
+          current_ticket_count: "3",
+          listed_ticket_count: "1",
+        },
+      ],
+    });
+
+    const stats = await getFanTicketProfileStats(
+      "0x00000000000000000000000000000000000000AA",
+      "main-event",
+    );
+
+    expect(stats).toEqual({
+      currentTicketCount: 3,
+      listedTicketCount: 1,
+    });
+    expect(dbMock.pool.query).toHaveBeenCalledWith(
+      expect.stringContaining("COUNT(*) FILTER (WHERE listed = TRUE)::text AS listed_ticket_count"),
+      ["main-event", "0x00000000000000000000000000000000000000AA"],
+    );
+  });
+
+  it("returns stored V2 deployment wiring including the perk manager address", async () => {
+    dbMock.pool.query.mockResolvedValueOnce({
+      rows: [
+        {
+          ticket_event_id: "v2-event",
+          name: "Paris Finals",
+          symbol: "PF26",
+          version: "v2",
+          artist_id: "artist-alpha",
+          series_id: "tour-2026",
+          primary_price_wei: "100",
+          max_supply: "200",
+          fan_pass_allocation_bps: "3000",
+          artist_royalty_bps: "500",
+          treasury: "0x0000000000000000000000000000000000000001",
+          admin: "0x0000000000000000000000000000000000000002",
+          ticket_nft_address: "0x0000000000000000000000000000000000000003",
+          marketplace_address: "0x0000000000000000000000000000000000000004",
+          checkin_registry_address: "0x0000000000000000000000000000000000000005",
+          collectible_contract: "0x0000000000000000000000000000000000000006",
+          fan_score_registry: "0x0000000000000000000000000000000000000007",
+          fan_fuel_bank: "0x0000000000000000000000000000000000000008",
+          insurance_pool: "0x0000000000000000000000000000000000000009",
+          oracle_adapter: "0x0000000000000000000000000000000000000010",
+          merch_store: "0x0000000000000000000000000000000000000011",
+          perk_manager: "0x0000000000000000000000000000000000000012",
+          deployment_block: "321",
+          registered_at: "654",
+        },
+      ],
+    });
+
+    const deployments = await getEventDeployments();
+
+    expect(deployments).toEqual([
+      {
+        ticketEventId: "v2-event",
+        name: "Paris Finals",
+        symbol: "PF26",
+        version: "v2",
+        artistId: "artist-alpha",
+        seriesId: "tour-2026",
+        primaryPriceWei: "100",
+        maxSupply: "200",
+        fanPassAllocationBps: "3000",
+        artistRoyaltyBps: "500",
+        treasury: "0x0000000000000000000000000000000000000001",
+        admin: "0x0000000000000000000000000000000000000002",
+        ticketNftAddress: "0x0000000000000000000000000000000000000003",
+        marketplaceAddress: "0x0000000000000000000000000000000000000004",
+        checkInRegistryAddress: "0x0000000000000000000000000000000000000005",
+        collectibleContract: "0x0000000000000000000000000000000000000006",
+        fanScoreRegistry: "0x0000000000000000000000000000000000000007",
+        fanFuelBank: "0x0000000000000000000000000000000000000008",
+        insurancePool: "0x0000000000000000000000000000000000000009",
+        oracleAdapter: "0x0000000000000000000000000000000000000010",
+        merchStore: "0x0000000000000000000000000000000000000011",
+        perkManager: "0x0000000000000000000000000000000000000012",
+        deploymentBlock: 321,
+        registeredAt: 654,
+      },
+    ]);
+    expect(dbMock.pool.query).toHaveBeenCalledWith(
+      expect.stringContaining("perk_manager"),
+    );
   });
 });

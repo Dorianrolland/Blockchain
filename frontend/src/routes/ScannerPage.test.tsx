@@ -22,9 +22,20 @@ function makeAppState(overrides: Record<string, unknown> = {}) {
   return {
     userRoles: {
       isAdmin: false,
+      isBuybackOperator: false,
       isScannerAdmin: false,
       isPauser: false,
       isScanner: true,
+    },
+    availableEvents: [
+      {
+        ticketEventId: "main-event",
+        version: "v1",
+      },
+    ],
+    selectedEventId: "main-event",
+    systemState: {
+      version: "v1",
     },
     preparePreview: vi.fn(),
     setErrorMessage: vi.fn(),
@@ -87,5 +98,42 @@ describe("ScannerPage", () => {
   it("extracts token ids from ticket deep links generated for mobile entry", () => {
     expect(extractTokenId("https://demo.chainticket.app/app/tickets/77?eventId=main-event")).toBe("77");
     expect(extractTokenId("https://demo.chainticket.app/app/tickets/77?eventId=main-event&view=collectible")).toBe("77");
+  });
+
+  it("switches scanner preview to collectible transformation for V2 events", async () => {
+    const appState = makeAppState({
+      availableEvents: [
+        {
+          ticketEventId: "main-event",
+          version: "v2",
+        },
+      ],
+      systemState: {
+        version: "v2",
+      },
+    });
+    useAppStateMock.mockReturnValue(appState);
+
+    render(
+      <I18nProvider>
+        <MemoryRouter>
+          <ScannerPage />
+        </MemoryRouter>
+      </I18nProvider>,
+    );
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText(/Token ID/i), "456");
+    await user.click(screen.getAllByRole("button", { name: /^Mark Ticket Used$/i })[0]!);
+
+    expect(appState.preparePreview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        label: "Scanner collectible check-in",
+        action: {
+          type: "checkin_transform",
+          tokenId: 456n,
+        },
+      }),
+    );
   });
 });

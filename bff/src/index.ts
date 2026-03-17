@@ -5,12 +5,17 @@ import { config } from "./config.js";
 import { initDatabase, pool } from "./db.js";
 import { ChainIndexer } from "./indexer.js";
 import { logger } from "./logger.js";
+import { formatStartupError, startIndexerInBackground } from "./startup.js";
 
 async function main(): Promise<void> {
   await initDatabase();
 
   const indexer = new ChainIndexer();
-  await indexer.start();
+  const startupAbortController = new AbortController();
+  void startIndexerInBackground(indexer, {
+    logger,
+    signal: startupAbortController.signal,
+  });
 
   const app = createApp(indexer);
   const server = createServer(app);
@@ -28,6 +33,7 @@ async function main(): Promise<void> {
 
   const shutdown = async (signal: string) => {
     logger.info({ signal }, "Shutting down BFF...");
+    startupAbortController.abort();
     server.close();
     await indexer.stop();
     await pool.end();
@@ -43,6 +49,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
-  logger.error({ error }, "Fatal startup error.");
+  logger.error({ error: formatStartupError(error) }, "Fatal startup error.");
   process.exit(1);
 });

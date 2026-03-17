@@ -5,6 +5,21 @@ dotenv.config();
 
 const addressSchema = z.string().regex(/^0x[a-fA-F0-9]{40}$/, "Invalid address");
 const runtimeMode = (process.env.BFF_RUNTIME_MODE ?? "server").trim().toLowerCase();
+const privateKeySchema = /^0x[a-fA-F0-9]{64}$/;
+
+const booleanEnv = z.preprocess(
+  (value) => {
+    if (typeof value === "boolean") {
+      return value;
+    }
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      return normalized === "true" || normalized === "1" || normalized === "yes";
+    }
+    return false;
+  },
+  z.boolean(),
+);
 
 const schema = z.object({
   NODE_ENV: z.string().optional(),
@@ -97,6 +112,50 @@ const schema = z.object({
   DEMO_LINEUP_PAGE_SIZE: z.coerce.number().int().positive().default(100),
   DEMO_LINEUP_MAX_PAGES: z.coerce.number().int().positive().default(2),
   DEMO_LINEUP_CACHE_TTL_HOURS: z.coerce.number().int().positive().default(24),
+  FANPASS_ATTESTATION_PRIVATE_KEY: z
+    .string()
+    .optional()
+    .transform((value) => {
+      const trimmed = value?.trim() ?? "";
+      return trimmed.length > 0 ? trimmed : null;
+    })
+    .refine((value) => value === null || privateKeySchema.test(value), {
+      message: "Invalid FANPASS_ATTESTATION_PRIVATE_KEY",
+    }),
+  FANPASS_ATTESTATION_TTL_SECONDS: z.coerce.number().int().positive().default(900),
+  EMBEDDED_WALLET_MASTER_KEY: z
+    .string()
+    .optional()
+    .transform((value) => {
+      const trimmed = value?.trim() ?? "";
+      return trimmed.length > 0 ? trimmed : null;
+    }),
+  EMBEDDED_WALLET_SESSION_SECRET: z
+    .string()
+    .optional()
+    .transform((value) => {
+      const trimmed = value?.trim() ?? "";
+      return trimmed.length > 0 ? trimmed : null;
+    }),
+  EMBEDDED_WALLET_CODE_TTL_SECONDS: z.coerce.number().int().positive().default(600),
+  EMBEDDED_WALLET_SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(604800),
+  EMBEDDED_WALLET_DEV_MODE: booleanEnv.default(false),
+  SPONSOR_RELAY_PRIVATE_KEY: z
+    .string()
+    .optional()
+    .transform((value) => {
+      const trimmed = value?.trim() ?? "";
+      return trimmed.length > 0 ? trimmed : null;
+    })
+    .refine((value) => value === null || privateKeySchema.test(value), {
+      message: "Invalid SPONSOR_RELAY_PRIVATE_KEY",
+    }),
+  SPONSORED_TOPUP_WEI: z
+    .string()
+    .default("20000000000000000")
+    .refine((value) => /^\d+$/.test(value), {
+      message: "SPONSORED_TOPUP_WEI must be a positive integer string",
+    }),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -163,6 +222,17 @@ export const config = {
   demoLineupPageSize: env.DEMO_LINEUP_PAGE_SIZE,
   demoLineupMaxPages: env.DEMO_LINEUP_MAX_PAGES,
   demoLineupCacheTtlHours: env.DEMO_LINEUP_CACHE_TTL_HOURS,
+  fanPassAttestationPrivateKey: env.FANPASS_ATTESTATION_PRIVATE_KEY,
+  fanPassAttestationTtlSeconds: env.FANPASS_ATTESTATION_TTL_SECONDS,
+  embeddedWalletMasterKey: env.EMBEDDED_WALLET_MASTER_KEY,
+  embeddedWalletSessionSecret:
+    env.EMBEDDED_WALLET_SESSION_SECRET ?? env.EMBEDDED_WALLET_MASTER_KEY,
+  embeddedWalletCodeTtlSeconds: env.EMBEDDED_WALLET_CODE_TTL_SECONDS,
+  embeddedWalletSessionTtlSeconds: env.EMBEDDED_WALLET_SESSION_TTL_SECONDS,
+  embeddedWalletDevMode: env.EMBEDDED_WALLET_DEV_MODE,
+  sponsorRelayPrivateKey:
+    env.SPONSOR_RELAY_PRIVATE_KEY ?? env.FANPASS_ATTESTATION_PRIVATE_KEY,
+  sponsoredTopupWei: BigInt(env.SPONSORED_TOPUP_WEI),
 } as const;
 
 export type AppConfig = typeof config;

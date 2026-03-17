@@ -28,6 +28,7 @@ function makeAppState(overrides: Record<string, unknown> = {}) {
     setVenueSafeMode: vi.fn(),
     userRoles: {
       isAdmin: true,
+      isBuybackOperator: false,
       isScannerAdmin: true,
       isPauser: false,
       isScanner: false,

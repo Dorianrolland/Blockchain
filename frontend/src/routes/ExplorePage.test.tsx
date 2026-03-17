@@ -19,8 +19,10 @@ function makeAppState(overrides: Record<string, unknown> = {}) {
         ticketEventId: "paris-finals",
         name: "Paris Finals",
         symbol: "PF26",
+        version: "v2",
         primaryPriceWei: "100000000000000000",
         maxSupply: "100",
+        fanPassAllocationBps: "3000",
         treasury: "0x0000000000000000000000000000000000000001",
         admin: "0x0000000000000000000000000000000000000002",
         ticketNftAddress: "0x0000000000000000000000000000000000000003",
@@ -54,6 +56,9 @@ function makeAppState(overrides: Record<string, unknown> = {}) {
     ],
     selectedEventId: "paris-finals",
     setSelectedEventId: vi.fn(),
+    runtimeConfig: {
+      defaultEventId: "paris-finals",
+    },
     ...overrides,
   };
 }
@@ -75,6 +80,7 @@ describe("ExplorePage", () => {
 
     expect(screen.getByRole("heading", { name: /Explore live experiences/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /Paris Finals/i })).toBeInTheDocument();
+    expect(screen.getAllByText("Full stack live").length).toBeGreaterThan(0);
 
     await userEvent.selectOptions(screen.getByLabelText("City"), "Paris");
 

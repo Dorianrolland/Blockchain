@@ -1,10 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 
 import {
   Badge,
   Card,
   EmptyState,
+  InfoList,
   PageHeader,
   Panel,
   ProgressStepper,
@@ -16,7 +18,12 @@ import { EventDemoNotice } from "../components/events/EventDemoNotice";
 import { TicketMedia } from "../components/tickets/TicketMedia";
 import { IndexedReadinessBanner } from "../components/layout/IndexedReadinessBanner";
 import { useI18n } from "../i18n/I18nContext";
+import { createBffClient } from "../lib/bffClient";
+import { getCollectiblesByOwnerFromChain } from "../lib/collectibles";
+import { mapEthersError } from "../lib/errors";
 import { formatAddress, formatPol } from "../lib/format";
+import { getMerchCatalogFromChain, getMerchRedemptionsByFanFromChain } from "../lib/merch";
+import { getPerksForFanFromChain } from "../lib/perks";
 import { buildTokenUriFromBase } from "../lib/ticketMetadata";
 import {
   getTicketPerks,
@@ -26,6 +33,19 @@ import { useTicketPreviewCollection } from "../lib/useTicketPreviewCollection";
 import { useAppState } from "../state/useAppState";
 
 type TicketViewMode = "card" | "table";
+
+function perkDisplayName(perkId: string, metadataURI: string): string {
+  if (metadataURI.trim().length > 0) {
+    const sanitized = metadataURI.split("?")[0]?.split("#")[0] ?? metadataURI;
+    const lastSegment = sanitized.split("/").filter(Boolean).pop() ?? sanitized;
+    const withoutExtension = lastSegment.replace(/\.json$/i, "");
+    if (withoutExtension.length > 0) {
+      return withoutExtension.replace(/[-_]/g, " ");
+    }
+  }
+
+  return `${perkId.slice(0, 10)}...`;
+}
 
 function resolvePreviewDescriptor(args: {
   tokenId: bigint;
@@ -58,16 +78,162 @@ export function TicketsPage() {
     connectWallet,
     contractConfig,
     indexedReadsAvailable,
+    runtimeConfig,
     systemState,
     selectedEventName,
     availableEvents,
     selectedEventId,
+    preparePreview,
+    setErrorMessage,
+    txState,
   } = useAppState();
   const selectedEvent =
-    availableEvents.find((event) => event.ticketEventId === selectedEventId) ?? null;
+    (availableEvents ?? []).find((event) => event.ticketEventId === selectedEventId) ?? null;
+  const bffClient = useMemo(
+    () => createBffClient(runtimeConfig?.apiBaseUrl ?? null),
+    [runtimeConfig?.apiBaseUrl],
+  );
+  const preferBffV2Reads = Boolean(bffClient && indexedReadsAvailable);
   const [viewMode, setViewMode] = useState<TicketViewMode>("card");
   const eventWatchKey = (tokenId: bigint) =>
     `${contractConfig.eventId ?? "main-event"}:${tokenId.toString()}`;
+  const fanProfileQuery = useQuery({
+    queryKey: [
+      "fan-profile",
+      selectedEventId,
+      walletAddress,
+      runtimeConfig?.apiBaseUrl ?? "no-bff",
+    ],
+    enabled: Boolean(
+      bffClient &&
+      walletAddress &&
+      indexedReadsAvailable &&
+      (selectedEvent?.version ?? "v1") === "v2",
+    ),
+    retry: 1,
+    refetchInterval: 30_000,
+    queryFn: async () => bffClient!.getFanProfile(walletAddress, selectedEventId),
+  });
+  const collectiblesQuery = useQuery({
+    queryKey: [
+      "collectibles",
+      selectedEventId,
+      walletAddress,
+      selectedEvent?.collectibleContract ?? "no-collectible",
+      preferBffV2Reads ? runtimeConfig?.apiBaseUrl ?? "bff" : "chain",
+    ],
+    enabled: Boolean(walletAddress && selectedEvent?.collectibleContract && (selectedEvent?.version ?? "v1") === "v2"),
+    retry: 1,
+    refetchInterval: 30_000,
+    queryFn: async () => {
+      if (preferBffV2Reads && bffClient && walletAddress) {
+        try {
+          return await bffClient.getFanCollectibles(walletAddress, selectedEventId);
+        } catch {
+          // Fall back to direct chain reads while the BFF catches up or restarts.
+        }
+      }
+
+      return getCollectiblesByOwnerFromChain({
+        rpcUrl: contractConfig.rpcUrl,
+        chainId: contractConfig.chainId,
+        collectibleContractAddress: selectedEvent!.collectibleContract!,
+        owner: walletAddress,
+        fromBlock: selectedEvent?.deploymentBlock ?? contractConfig.deploymentBlock,
+      });
+    },
+  });
+  const fanPerksQuery = useQuery({
+    queryKey: [
+      "fan-perks",
+      selectedEventId,
+      walletAddress,
+      selectedEvent?.perkManager ?? "no-perk-manager",
+      preferBffV2Reads ? runtimeConfig?.apiBaseUrl ?? "bff" : "chain",
+    ],
+    enabled: Boolean(
+      walletAddress &&
+      (selectedEvent?.version ?? "v1") === "v2" &&
+      selectedEvent?.perkManager,
+    ),
+    retry: 1,
+    refetchInterval: 30_000,
+    queryFn: async () => {
+      if (preferBffV2Reads && bffClient && walletAddress) {
+        try {
+          return await bffClient.getFanPerks(walletAddress, selectedEventId);
+        } catch {
+          // Fall back to direct chain reads while the BFF catches up or restarts.
+        }
+      }
+
+      return getPerksForFanFromChain({
+        rpcUrl: contractConfig.rpcUrl,
+        chainId: contractConfig.chainId,
+        perkManagerAddress: selectedEvent!.perkManager!,
+        fan: walletAddress!,
+        fromBlock: selectedEvent?.deploymentBlock ?? contractConfig.deploymentBlock,
+      });
+    },
+  });
+  const merchCatalogQuery = useQuery({
+    queryKey: [
+      "merch-catalog",
+      selectedEventId,
+      selectedEvent?.merchStore ?? "no-merch-store",
+      preferBffV2Reads ? runtimeConfig?.apiBaseUrl ?? "bff" : "chain",
+    ],
+    enabled: Boolean((selectedEvent?.version ?? "v1") === "v2" && selectedEvent?.merchStore),
+    retry: 1,
+    refetchInterval: 30_000,
+    queryFn: async () => {
+      if (preferBffV2Reads && bffClient) {
+        try {
+          return await bffClient.getMerchCatalog(selectedEventId);
+        } catch {
+          // Fall back to direct chain reads while the BFF catches up or restarts.
+        }
+      }
+
+      return getMerchCatalogFromChain({
+        rpcUrl: contractConfig.rpcUrl,
+        chainId: contractConfig.chainId,
+        merchStoreAddress: selectedEvent!.merchStore!,
+        fromBlock: selectedEvent?.deploymentBlock ?? contractConfig.deploymentBlock,
+      });
+    },
+  });
+  const merchRedemptionsQuery = useQuery({
+    queryKey: [
+      "merch-redemptions",
+      selectedEventId,
+      walletAddress,
+      selectedEvent?.merchStore ?? "no-merch-store",
+      preferBffV2Reads ? runtimeConfig?.apiBaseUrl ?? "bff" : "chain",
+    ],
+    enabled: Boolean(
+      walletAddress && (selectedEvent?.version ?? "v1") === "v2" && selectedEvent?.merchStore,
+    ),
+    retry: 1,
+    refetchInterval: 30_000,
+    queryFn: async () => {
+      if (preferBffV2Reads && bffClient && walletAddress) {
+        try {
+          return await bffClient.getFanMerchRedemptions(walletAddress, selectedEventId);
+        } catch {
+          // Fall back to direct chain reads while the BFF catches up or restarts.
+        }
+      }
+
+      return getMerchRedemptionsByFanFromChain({
+        rpcUrl: contractConfig.rpcUrl,
+        chainId: contractConfig.chainId,
+        merchStoreAddress: selectedEvent!.merchStore!,
+        fan: walletAddress,
+        fromBlock: selectedEvent?.deploymentBlock ?? contractConfig.deploymentBlock,
+      });
+    },
+  });
 
   const copy =
     locale === "fr"
@@ -112,7 +278,55 @@ export function TicketsPage() {
           tableListing: "Annonce",
           tableAction: "Action principale",
           tableWatch: "Suivi",
-          vaultView: "Vault",
+            vaultView: "Vault",
+            fanProfileTitle: "Fan profile",
+            fanProfileSubtitle:
+              "Le stack upgrade transforme l'historique d'achat en reputation, FanFuel et collectibles visibles dans le vault.",
+          collectiblesTitle: "Collectibles",
+          collectiblesSubtitle:
+            "Les souvenirs post-check-in restent visibles a cote des billets encore actifs, pour que le vault garde une narration complete.",
+          emptyCollectibles: "Aucun collectible pour ce wallet",
+          viewSouvenir: "Ouvrir le souvenir",
+          sourceTicket: "Ticket source",
+          sourceClass: "Classe source",
+          collectibleLevel: "Niveau",
+          collectibleOwner: "Detenteur",
+          fanTier: "Tier",
+          fanScore: "Score",
+          fanFuel: "FanFuel",
+          attendance: "Presences",
+          collectibles: "Collectibles",
+          perksTitle: "Perks on-chain",
+          perksSubtitle:
+            "Vos droits exclusifs deviennent actionnables par smart contract selon reputation, presence et FanFuel.",
+          perkRequirementScore: "Score min",
+          perkRequirementAttendance: "Presences min",
+          perkRequirementFuel: "Cout FanFuel",
+          perkUnlocked: "Deverrouille",
+          perkLocked: "Verrouille",
+          perkInactive: "Inactif",
+          perkRedeemed: "Redeems",
+          perksEmpty: "Aucun perk configure pour cet evenement",
+          redeemPerk: "Redeem perk",
+          redeemPerkPreviewLabel: "Redemption perk",
+          redeemPerkPreviewDescription:
+            "Consommer un perk on-chain en appliquant les regles de reputation, de presence et de FanFuel.",
+          merchTitle: "Boutique phygitale",
+          merchSubtitle:
+            "Depensez votre FanFuel pour des drops exclusifs et recevez un twin NFT comme preuve d'authenticite.",
+          merchBalanceHint: "Balance FanFuel disponible",
+          merchCost: "Cout",
+          merchStock: "Stock",
+          merchTwin: "Twin",
+          merchHistory: "Historique merch",
+          merchEmpty: "Aucun drop merch configure pour cet evenement",
+          merchHistoryEmpty: "Aucune redemption merch pour ce wallet",
+          redeemMerch: "Redeem avec FanFuel",
+          redeemMerchPreviewLabel: "Redemption merch",
+          redeemMerchPreviewDescription:
+            "Depenser du FanFuel pour reserver un item merch et mint son NFT jumeau d'authenticite.",
+          soldOut: "Rupture",
+          inactive: "Inactif",
         }
       : {
           title: "Ticket Vault",
@@ -155,7 +369,55 @@ export function TicketsPage() {
           tableListing: "Listing",
           tableAction: "Primary action",
           tableWatch: "Watch",
-          vaultView: "Vault",
+            vaultView: "Vault",
+            fanProfileTitle: "Fan profile",
+            fanProfileSubtitle:
+              "The upgraded stack turns purchase history into visible reputation, FanFuel, and collectible progress inside the vault.",
+          collectiblesTitle: "Collectibles",
+          collectiblesSubtitle:
+            "Post-check-in souvenirs stay visible next to live passes so the vault keeps the full fan story.",
+          emptyCollectibles: "No collectibles for this wallet",
+          viewSouvenir: "Open souvenir",
+          sourceTicket: "Source ticket",
+          sourceClass: "Source class",
+          collectibleLevel: "Level",
+          collectibleOwner: "Owner",
+          fanTier: "Tier",
+          fanScore: "Score",
+          fanFuel: "FanFuel",
+          attendance: "Attendance",
+          collectibles: "Collectibles",
+          perksTitle: "On-chain perks",
+          perksSubtitle:
+            "Exclusive rights become smart-contract unlocks based on reputation, attendance, and FanFuel.",
+          perkRequirementScore: "Min score",
+          perkRequirementAttendance: "Min attendance",
+          perkRequirementFuel: "FanFuel cost",
+          perkUnlocked: "Unlocked",
+          perkLocked: "Locked",
+          perkInactive: "Inactive",
+          perkRedeemed: "Redemptions",
+          perksEmpty: "No perks configured for this event",
+          redeemPerk: "Redeem perk",
+          redeemPerkPreviewLabel: "Perk redemption",
+          redeemPerkPreviewDescription:
+            "Redeem an on-chain perk using its configured reputation, attendance, and FanFuel rules.",
+          merchTitle: "Phygital merch",
+          merchSubtitle:
+            "Spend FanFuel on exclusive drops and receive a twin NFT that proves authenticity.",
+          merchBalanceHint: "Available FanFuel balance",
+          merchCost: "Cost",
+          merchStock: "Stock",
+          merchTwin: "Twin",
+          merchHistory: "Merch history",
+          merchEmpty: "No merch drops configured for this event",
+          merchHistoryEmpty: "No merch redemptions for this wallet",
+          redeemMerch: "Redeem with FanFuel",
+          redeemMerchPreviewLabel: "Merch redemption",
+          redeemMerchPreviewDescription:
+            "Spend FanFuel to reserve a merch item and mint its authenticity twin NFT.",
+          soldOut: "Sold out",
+          inactive: "Inactive",
         };
 
   const sortedTickets = useMemo(
@@ -209,6 +471,112 @@ export function TicketsPage() {
     ],
   );
   const previews = useTicketPreviewCollection(previewDescriptors);
+  const collectiblePreviewDescriptors = useMemo(
+    () =>
+      (collectiblesQuery.data ?? []).map((collectible) => ({
+        key: `collectible-${collectible.collectibleId.toString()}`,
+        tokenId: collectible.collectibleId,
+        ticketEventId: contractConfig.eventId,
+        activeTokenUri: collectible.tokenURI,
+        activeView: "collectible" as const,
+        liveTokenUri: null,
+        collectibleTokenUri: collectible.tokenURI,
+      })),
+    [collectiblesQuery.data, contractConfig.eventId],
+  );
+  const collectiblePreviews = useTicketPreviewCollection(collectiblePreviewDescriptors);
+  const hasCollectibles = (collectiblesQuery.data?.length ?? 0) > 0;
+  const hasPerks = (fanPerksQuery.data?.length ?? 0) > 0;
+  const hasMerchCatalog = (merchCatalogQuery.data?.length ?? 0) > 0;
+  const hasMerchHistory = (merchRedemptionsQuery.data?.length ?? 0) > 0;
+  const hasInventory = sortedTickets.length > 0 || hasCollectibles || hasPerks;
+  const knownFuelBalance = fanProfileQuery.data?.fuelBalance ?? null;
+
+  useEffect(() => {
+    if (
+      txState.status === "success" &&
+      (
+        txState.label?.startsWith(copy.redeemMerchPreviewLabel) ||
+        txState.label?.startsWith(copy.redeemPerkPreviewLabel)
+      )
+    ) {
+      void fanProfileQuery.refetch();
+      void fanPerksQuery.refetch();
+      void merchCatalogQuery.refetch();
+      void merchRedemptionsQuery.refetch();
+    }
+  }, [
+    copy.redeemPerkPreviewLabel,
+    copy.redeemMerchPreviewLabel,
+    fanProfileQuery,
+    fanPerksQuery,
+    merchCatalogQuery,
+    merchRedemptionsQuery,
+    txState.label,
+    txState.status,
+  ]);
+
+  const onRedeemPerk = async (perkId: string, title: string) => {
+    try {
+      await preparePreview({
+        label: `${copy.redeemPerkPreviewLabel}: ${title}`,
+        description: copy.redeemPerkPreviewDescription,
+        action: { type: "redeem_perk", perkId },
+        details: [
+          locale === "fr"
+            ? "Verifie le statut du perk, votre eligibilite et la balance FanFuel avant signature."
+            : "Checks perk status, fan eligibility, and FanFuel balance before signature.",
+          locale === "fr"
+            ? "Le smart contract confirme reputation et presence avant de debiter le FanFuel requis."
+            : "The smart contract confirms reputation and attendance before spending the required FanFuel.",
+          locale === "fr" ? `Perk cible: ${title}.` : `Target perk: ${title}.`,
+        ],
+        run: async (client) => {
+          if (!client.redeemPerk) {
+            throw new Error(
+              locale === "fr"
+                ? "La redemption de perk est indisponible dans ce client."
+                : "Perk redemption is unavailable in this client.",
+            );
+          }
+          return client.redeemPerk(perkId);
+        },
+      });
+    } catch (error) {
+      setErrorMessage(mapEthersError(error));
+    }
+  };
+
+  const onRedeemMerch = async (skuId: string) => {
+    try {
+      await preparePreview({
+        label: `${copy.redeemMerchPreviewLabel}: ${skuId}`,
+        description: copy.redeemMerchPreviewDescription,
+        action: { type: "redeem_merch", skuId },
+        details: [
+          locale === "fr"
+            ? "Verifie le stock du SKU et la balance FanFuel avant signature."
+            : "Checks SKU stock and FanFuel balance before signature.",
+          locale === "fr"
+            ? "Le merch store depense le FanFuel puis mint un twin NFT de redemption."
+            : "The merch store spends FanFuel and then mints a redemption twin NFT.",
+          locale === "fr" ? `SKU cible: ${skuId}.` : `Target SKU: ${skuId}.`,
+        ],
+        run: async (client) => {
+          if (!client.redeemMerch) {
+            throw new Error(
+              locale === "fr"
+                ? "La redemption merch est indisponible dans ce client."
+                : "Merch redemption is unavailable in this client.",
+            );
+          }
+          return client.redeemMerch(skuId);
+        },
+      });
+    } catch (error) {
+      setErrorMessage(mapEthersError(error));
+    }
+  };
 
   return (
     <div className="route-stack tickets-route" data-testid="tickets-page">
@@ -268,7 +636,7 @@ export function TicketsPage() {
         />
       ) : null}
 
-      {walletAddress && indexedReadsAvailable && sortedTickets.length === 0 ? (
+      {walletAddress && indexedReadsAvailable && !hasInventory ? (
         <EmptyState
           title={copy.emptyTitle}
           description={copy.emptyDescription}
@@ -280,7 +648,7 @@ export function TicketsPage() {
         />
       ) : null}
 
-      {walletAddress && sortedTickets.length > 0 ? (
+      {walletAddress && hasInventory ? (
         <Panel className="vault-summary-panel" surface="glass">
           <div className="vault-summary-copy">
             <p className="eyebrow">{copy.vaultEyebrow}</p>
@@ -298,10 +666,288 @@ export function TicketsPage() {
             </Card>
             <Card className="vault-stat-card" surface="glass">
               <span>Collectible</span>
-              <strong>{ticketCounters.collectible}</strong>
+              <strong>{hasCollectibles ? collectiblesQuery.data!.length : ticketCounters.collectible}</strong>
             </Card>
           </div>
         </Panel>
+      ) : null}
+
+      {walletAddress && fanProfileQuery.data ? (
+        <Panel className="vault-summary-panel" surface="glass">
+          <SectionHeader
+            title={copy.fanProfileTitle}
+            subtitle={copy.fanProfileSubtitle}
+            actions={
+              <Tag tone="info">
+                {selectedEvent?.artistId ?? selectedEventName ?? "Artist"}
+              </Tag>
+            }
+          />
+          <div className="vault-stat-grid">
+            <Card className="vault-stat-card" surface="accent">
+              <span>{copy.fanTier}</span>
+              <strong>{fanProfileQuery.data.tierLabel.toUpperCase()}</strong>
+            </Card>
+            <Card className="vault-stat-card" surface="glass">
+              <span>{copy.fanScore}</span>
+              <strong>{fanProfileQuery.data.reputationScore.toString()}</strong>
+            </Card>
+            <Card className="vault-stat-card" surface="glass">
+              <span>{copy.fanFuel}</span>
+              <strong>{fanProfileQuery.data.fuelBalance.toString()}</strong>
+            </Card>
+          </div>
+          <InfoList
+            entries={[
+              { label: copy.attendance, value: fanProfileQuery.data.artistAttendanceCount.toString() },
+              { label: copy.collectibles, value: fanProfileQuery.data.collectibleCount.toString() },
+              { label: copy.passesLabel, value: fanProfileQuery.data.currentTicketCount },
+              { label: copy.listed, value: fanProfileQuery.data.listedTicketCount },
+            ]}
+          />
+        </Panel>
+      ) : null}
+
+      {walletAddress &&
+      (selectedEvent?.version ?? "v1") === "v2" &&
+      selectedEvent?.perkManager ? (
+        <>
+          <SectionHeader
+            title={copy.perksTitle}
+            subtitle={copy.perksSubtitle}
+            actions={<Tag tone="info">{hasPerks ? fanPerksQuery.data!.length.toString() : "0"}</Tag>}
+          />
+
+          {hasPerks ? (
+            <section className="ticket-pass-grid">
+              {fanPerksQuery.data!.map((perk) => {
+                const title = perkDisplayName(perk.perkId, perk.metadataURI);
+                const disabled =
+                  !perk.active ||
+                  !perk.unlocked ||
+                  (knownFuelBalance !== null && knownFuelBalance < perk.fuelCost);
+
+                return (
+                  <Card
+                    key={perk.perkId}
+                    className="ticket-pass-card vault-pass-card"
+                    surface="glass"
+                  >
+                    <div className="ticket-pass-copy">
+                      <div className="ticket-pass-heading">
+                        <div>
+                          <p className="ticket-pass-kicker">{copy.perksTitle}</p>
+                          <h3>{title}</h3>
+                        </div>
+                        <Badge
+                          tone={
+                            !perk.active ? "warning" : perk.unlocked ? "success" : "default"
+                          }
+                          emphasis="solid"
+                        >
+                          {!perk.active
+                            ? copy.perkInactive
+                            : perk.unlocked
+                              ? copy.perkUnlocked
+                              : copy.perkLocked}
+                        </Badge>
+                      </div>
+
+                      <p className="ticket-pass-description">
+                        {perk.metadataURI
+                          ? perk.metadataURI
+                          : locale === "fr"
+                            ? "Perk configure on-chain pour cet artiste."
+                            : "On-chain perk configured for this artist."}
+                      </p>
+
+                      <InfoList
+                        entries={[
+                          {
+                            label: copy.perkRequirementScore,
+                            value: perk.minScore.toString(),
+                          },
+                          {
+                            label: copy.perkRequirementAttendance,
+                            value: perk.minAttendances.toString(),
+                          },
+                          {
+                            label: copy.perkRequirementFuel,
+                            value: `${perk.fuelCost.toString()} ${copy.fanFuel}`,
+                          },
+                          {
+                            label: copy.perkRedeemed,
+                            value: perk.redeemedCount.toString(),
+                          },
+                        ]}
+                      />
+
+                      <div className="ticket-pass-footer">
+                        <button
+                          type="button"
+                          className="primary"
+                          onClick={() => void onRedeemPerk(perk.perkId, title)}
+                          disabled={disabled}
+                        >
+                          {copy.redeemPerk}
+                        </button>
+                      </div>
+                    </div>
+                  </Card>
+                );
+              })}
+            </section>
+          ) : !fanPerksQuery.isLoading ? (
+            <Panel className="vault-summary-panel" surface="glass">
+              <p>{copy.perksEmpty}</p>
+            </Panel>
+          ) : null}
+        </>
+      ) : null}
+
+      {walletAddress &&
+      (selectedEvent?.version ?? "v1") === "v2" &&
+      selectedEvent?.merchStore ? (
+        <>
+          <SectionHeader
+            title={copy.merchTitle}
+            subtitle={copy.merchSubtitle}
+            actions={
+              <Tag tone="info">
+                {copy.merchBalanceHint}: {knownFuelBalance !== null ? knownFuelBalance.toString() : "-"}
+              </Tag>
+            }
+          />
+
+          {hasMerchCatalog ? (
+            <section className="ticket-pass-grid">
+              {merchCatalogQuery.data!.map((sku) => {
+                const disabled =
+                  !sku.active ||
+                  sku.stock <= 0n ||
+                  (knownFuelBalance !== null && knownFuelBalance < sku.price);
+
+                return (
+                  <Card
+                    key={sku.skuId}
+                    className="ticket-pass-card vault-pass-card"
+                    surface="glass"
+                  >
+                    <div className="ticket-pass-copy">
+                      <div className="ticket-pass-heading">
+                        <div>
+                          <p className="ticket-pass-kicker">{copy.merchTitle}</p>
+                          <h3>{sku.skuId}</h3>
+                        </div>
+                        <Badge
+                          tone={
+                            !sku.active ? "warning" : sku.stock > 0n ? "success" : "danger"
+                          }
+                          emphasis="solid"
+                        >
+                          {!sku.active
+                            ? copy.inactive
+                            : sku.stock > 0n
+                              ? `${copy.merchStock} ${sku.stock.toString()}`
+                              : copy.soldOut}
+                        </Badge>
+                      </div>
+
+                      <p className="ticket-pass-description">
+                        {locale === "fr"
+                          ? "Drop exclusif reserve aux fans engages. La redemption mint un NFT jumeau comme preuve d'authenticite."
+                          : "Exclusive drop reserved for engaged fans. Redemption mints a twin NFT as authenticity proof."}
+                      </p>
+
+                      <InfoList
+                        entries={[
+                          {
+                            label: copy.merchCost,
+                            value: `${sku.price.toString()} ${copy.fanFuel}`,
+                          },
+                          {
+                            label: copy.merchStock,
+                            value: sku.stock.toString(),
+                          },
+                          {
+                            label: copy.merchBalanceHint,
+                            value: knownFuelBalance !== null ? knownFuelBalance.toString() : "-",
+                          },
+                        ]}
+                      />
+
+                      <div className="ticket-pass-footer">
+                        <button
+                          type="button"
+                          className="primary"
+                          onClick={() => void onRedeemMerch(sku.skuId)}
+                          disabled={disabled}
+                        >
+                          {copy.redeemMerch}
+                        </button>
+                      </div>
+                    </div>
+                  </Card>
+                );
+              })}
+            </section>
+          ) : !merchCatalogQuery.isLoading ? (
+            <Panel className="vault-summary-panel" surface="glass">
+              <p>{copy.merchEmpty}</p>
+            </Panel>
+          ) : null}
+
+          {hasMerchHistory ? (
+            <Panel className="vault-summary-panel" surface="glass">
+              <SectionHeader
+                title={copy.merchHistory}
+                actions={<Tag tone="info">{merchRedemptionsQuery.data!.length.toString()}</Tag>}
+              />
+              <div className="ticket-pass-grid">
+                {merchRedemptionsQuery.data!.map((redemption) => (
+                  <Card
+                    key={`${redemption.txHash}-${redemption.twinId.toString()}`}
+                    className="ticket-pass-card vault-pass-card"
+                    surface="quiet"
+                  >
+                    <div className="ticket-pass-copy">
+                      <div className="ticket-pass-heading">
+                        <div>
+                          <p className="ticket-pass-kicker">{copy.merchHistory}</p>
+                          <h3>{redemption.skuId}</h3>
+                        </div>
+                        <Badge tone="info" emphasis="solid">
+                          {copy.merchTwin} #{redemption.twinId.toString()}
+                        </Badge>
+                      </div>
+                      <InfoList
+                        entries={[
+                          {
+                            label: copy.merchCost,
+                            value: `${redemption.fuelCost.toString()} ${copy.fanFuel}`,
+                          },
+                          {
+                            label: copy.collectibleOwner,
+                            value: formatAddress(redemption.fan),
+                          },
+                          {
+                            label: "Tx",
+                            value: formatAddress(redemption.txHash, 8),
+                          },
+                        ]}
+                      />
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </Panel>
+          ) : !merchRedemptionsQuery.isLoading ? (
+            <Panel className="vault-summary-panel" surface="glass">
+              <SectionHeader title={copy.merchHistory} />
+              <p>{copy.merchHistoryEmpty}</p>
+            </Panel>
+          ) : null}
+        </>
       ) : null}
 
       {walletAddress && sortedTickets.length > 0 ? (
@@ -486,6 +1132,111 @@ export function TicketsPage() {
               })}
             </tbody>
           </table>
+        </Panel>
+      ) : null}
+
+      {walletAddress && hasCollectibles ? (
+        <>
+          <SectionHeader
+            title={copy.collectiblesTitle}
+            subtitle={copy.collectiblesSubtitle}
+            actions={<Tag tone="info">{collectiblesQuery.data!.length.toString()}</Tag>}
+          />
+          <section className="ticket-pass-grid">
+            {collectiblesQuery.data!.map((collectible) => {
+              const preview = collectiblePreviews.get(`collectible-${collectible.collectibleId.toString()}`);
+              const metadata = preview?.collectibleMetadata ?? preview?.activeMetadata;
+              const media = preview?.collectibleMedia ?? preview?.activeMedia;
+
+              return (
+                <Card
+                  key={collectible.collectibleId.toString()}
+                  className="ticket-pass-card vault-pass-card"
+                  surface="glass"
+                >
+                  <div className="ticket-pass-visual">
+                    <TicketMedia
+                      media={
+                        media ?? {
+                          kind: "fallback",
+                          src: null,
+                          posterSrc: null,
+                          alt: `Collectible #${collectible.collectibleId.toString()}`,
+                        }
+                      }
+                      fallbackTitle={
+                        metadata?.name ??
+                        `${copy.collectiblesTitle} #${collectible.collectibleId.toString()}`
+                      }
+                      fallbackSubtitle={`Ticket #${collectible.sourceTicketId.toString()}`}
+                    />
+                    <div className="ticket-pass-overlay">
+                      <Tag tone="info">{copy.collectiblesTitle}</Tag>
+                      <Tag tone="success">
+                        {copy.collectibleLevel} {collectible.level.toString()}
+                      </Tag>
+                    </div>
+                  </div>
+
+                  <div className="ticket-pass-copy">
+                    <div className="ticket-pass-heading">
+                      <div>
+                        <p className="ticket-pass-kicker">{copy.collectiblesTitle}</p>
+                        <h3>
+                          {metadata?.name ??
+                            `${copy.collectiblesTitle} #${collectible.collectibleId.toString()}`}
+                        </h3>
+                      </div>
+                      <Badge tone="info" emphasis="solid">
+                        L{collectible.level.toString()}
+                      </Badge>
+                    </div>
+
+                    <p className="ticket-pass-description">
+                      {metadata?.description ??
+                        (locale === "fr"
+                          ? "Souvenir mint apres check-in, avec niveau evolutif selon l'historique fan."
+                          : "Souvenir minted after check-in with a level that evolves with fan history.")}
+                    </p>
+
+                    <InfoList
+                      entries={[
+                        {
+                          label: copy.sourceTicket,
+                          value: `#${collectible.sourceTicketId.toString()}`,
+                        },
+                        {
+                          label: copy.sourceClass,
+                          value: collectible.sourceTicketClass === 1 ? "FanPass" : "Standard",
+                        },
+                        {
+                          label: copy.collectibleOwner,
+                          value: formatAddress(collectible.owner),
+                        },
+                      ]}
+                    />
+
+                    <div className="ticket-pass-footer">
+                      <Link
+                        to={`/app/tickets/${collectible.sourceTicketId.toString()}?view=collectible&collectibleId=${collectible.collectibleId.toString()}`}
+                        className="button-link primary"
+                      >
+                        {copy.viewSouvenir}
+                      </Link>
+                    </div>
+                  </div>
+                </Card>
+              );
+            })}
+          </section>
+        </>
+      ) : walletAddress &&
+        (selectedEvent?.version ?? "v1") === "v2" &&
+        !collectiblesQuery.isLoading &&
+        sortedTickets.length === 0 ? (
+        <Panel className="vault-summary-panel" surface="glass">
+          <SectionHeader title={copy.collectiblesTitle} subtitle={copy.collectiblesSubtitle} />
+          <p>{copy.emptyCollectibles}</p>
         </Panel>
       ) : null}
     </div>

@@ -18,3 +18,42 @@ export const listingsQuerySchema = z.object({
 export const eventQuerySchema = z.object({
   eventId: z.string().trim().min(1).optional(),
 });
+
+const emailSchema = z.string().trim().email().max(320);
+
+export const embeddedWalletRequestSchema = z.object({
+  email: emailSchema,
+});
+
+export const embeddedWalletVerifySchema = z.object({
+  email: emailSchema,
+  code: z.string().trim().regex(/^\d{6}$/, "Invalid verification code"),
+});
+
+export const sponsoredWalletActionSchema = z.discriminatedUnion("action", [
+  z.object({
+    eventId: z.string().trim().min(1).optional(),
+    action: z.literal("mint_standard"),
+    insured: z.boolean().default(false),
+  }),
+  z.object({
+    eventId: z.string().trim().min(1).optional(),
+    action: z.literal("mint_fanpass"),
+    insured: z.boolean().default(false),
+  }),
+  z.object({
+    eventId: z.string().trim().min(1).optional(),
+    action: z.literal("claim_insurance"),
+    tokenId: z.string().regex(/^\d+$/, "Invalid tokenId"),
+  }),
+  z.object({
+    eventId: z.string().trim().min(1).optional(),
+    action: z.literal("redeem_perk"),
+    perkId: z.string().trim().min(1),
+  }),
+  z.object({
+    eventId: z.string().trim().min(1).optional(),
+    action: z.literal("redeem_merch"),
+    skuId: z.string().trim().min(1),
+  }),
+]);

@@ -38,6 +38,7 @@ function makeAppState(overrides: Record<string, unknown> = {}) {
     walletAddress: "0x00000000000000000000000000000000000000AA",
     userRoles: {
       isAdmin: false,
+      isBuybackOperator: false,
       isScannerAdmin: true,
       isPauser: true,
       isScanner: false,
@@ -58,6 +59,23 @@ function makeAppState(overrides: Record<string, unknown> = {}) {
       averagePrice: 90000000000000000n,
       suggestedListPrice: 90000000000000000n,
     },
+    availableEvents: [
+      {
+        ticketEventId: "main-event",
+        name: "Main Event",
+        symbol: "ME01",
+        primaryPriceWei: "100000000000000000",
+        maxSupply: "100",
+        treasury: "0x0000000000000000000000000000000000000001",
+        admin: "0x0000000000000000000000000000000000000002",
+        ticketNftAddress: "0x0000000000000000000000000000000000000011",
+        marketplaceAddress: "0x0000000000000000000000000000000000000022",
+        checkInRegistryAddress: "0x0000000000000000000000000000000000000033",
+        deploymentBlock: 100,
+        registeredAt: 1700000000,
+      },
+    ],
+    selectedEventId: "main-event",
     preparePreview: vi.fn(),
     setErrorMessage: vi.fn(),
     setStatusMessage: vi.fn(),
@@ -149,6 +167,9 @@ describe("OrganizerPage", () => {
   it("keeps governance actions read-only for ops-only wallets", () => {
     renderPage();
 
+    expect(screen.getByText("Legacy rails")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Product rollout status" })).toBeInTheDocument();
+    expect(screen.getByText(/still runs on the legacy rail set/i)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Operational controls" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Pause System$/i })).toBeEnabled();
     expect(screen.getByRole("button", { name: /Grant scanner/i })).toBeEnabled();
@@ -161,8 +182,37 @@ describe("OrganizerPage", () => {
   it("enables governance controls when a governance wallet is connected", () => {
     useAppStateMock.mockReturnValue(
       makeAppState({
+        availableEvents: [
+          {
+            ticketEventId: "main-event",
+            name: "Main Event",
+            symbol: "MEV2",
+            version: "v2",
+            artistId: "artist-alpha",
+            seriesId: "tour-2026",
+            primaryPriceWei: "100000000000000000",
+            maxSupply: "100",
+            fanPassAllocationBps: "3000",
+            artistRoyaltyBps: "500",
+            treasury: "0x0000000000000000000000000000000000000001",
+            admin: "0x0000000000000000000000000000000000000002",
+            ticketNftAddress: "0x0000000000000000000000000000000000000011",
+            marketplaceAddress: "0x0000000000000000000000000000000000000022",
+            checkInRegistryAddress: "0x0000000000000000000000000000000000000033",
+            collectibleContract: "0x0000000000000000000000000000000000000044",
+            fanScoreRegistry: "0x0000000000000000000000000000000000000055",
+            fanFuelBank: "0x0000000000000000000000000000000000000066",
+            insurancePool: "0x0000000000000000000000000000000000000077",
+            oracleAdapter: "0x0000000000000000000000000000000000000088",
+            merchStore: "0x0000000000000000000000000000000000000099",
+            perkManager: "0x00000000000000000000000000000000000000AA",
+            deploymentBlock: 100,
+            registeredAt: 1700000000,
+          },
+        ],
         userRoles: {
           isAdmin: true,
+          isBuybackOperator: true,
           isScannerAdmin: true,
           isPauser: true,
           isScanner: false,
@@ -172,9 +222,13 @@ describe("OrganizerPage", () => {
 
     renderPage();
 
+    expect(screen.getByText("Full rail set")).toBeInTheDocument();
+    expect(screen.getByText(/already carries the full business rail set/i)).toBeInTheDocument();
+    expect(screen.getAllByText("30.00%").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /Enable Collectible/i })).toBeEnabled();
     expect(screen.getByRole("button", { name: /Prepare enable packet/i })).toBeEnabled();
     expect(screen.getByText(/Direct governance wallet available in this session/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Upgraded business rails/i })).toBeInTheDocument();
   });
 
   it("prepares and copies a timelock governance packet", async () => {

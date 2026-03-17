@@ -10,7 +10,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { CONTRACT_CONFIG, validateContractConfig } from "../config/contracts";
 import { RUNTIME_CONFIG } from "../config/runtime";
 import { createBffClient } from "../lib/bffClient";
-import { createChainTicketClient } from "../lib/chainTicketClient";
+import { createChainTicketClient, createSponsoredChainTicketClient } from "../lib/chainTicketClient";
 import { discoverFactoryEvents, getFallbackEventDeployment } from "../lib/eventCatalog";
 import { mapEthersError } from "../lib/errors";
 import { remainingSupply } from "../lib/format";
@@ -18,6 +18,7 @@ import { connectBrowserWallet } from "../lib/wallet";
 import type {
   ChainTicketEvent,
   ContractConfig,
+  EventDeployment,
   RuntimeConfig,
   TicketTimelineEntry,
 } from "../types/chainticket";
@@ -33,6 +34,43 @@ import {
 } from "./appState/types";
 import { useWalletSession } from "./appState/walletSession";
 import { useWatchlistAlerts } from "./appState/watchlistAlerts";
+
+function prioritizeAvailableEvents(
+  events: EventDeployment[],
+  preferredEventId: string,
+): EventDeployment[] {
+  return [...events].sort((left, right) => {
+    const leftIsPreferred = left.ticketEventId === preferredEventId;
+    const rightIsPreferred = right.ticketEventId === preferredEventId;
+    if (leftIsPreferred !== rightIsPreferred) {
+      return leftIsPreferred ? -1 : 1;
+    }
+
+    const leftIsUpgraded = left.version === "v2";
+    const rightIsUpgraded = right.version === "v2";
+    if (leftIsUpgraded !== rightIsUpgraded) {
+      return leftIsUpgraded ? -1 : 1;
+    }
+
+    const leftIsDemo = left.isDemoInspired === true;
+    const rightIsDemo = right.isDemoInspired === true;
+    if (leftIsDemo !== rightIsDemo) {
+      return leftIsDemo ? 1 : -1;
+    }
+
+    if (left.startsAt && right.startsAt && left.startsAt !== right.startsAt) {
+      return left.startsAt - right.startsAt;
+    }
+    if (left.startsAt && !right.startsAt) {
+      return -1;
+    }
+    if (!left.startsAt && right.startsAt) {
+      return 1;
+    }
+
+    return left.name.localeCompare(right.name);
+  });
+}
 
 export function AppStateProvider({
   children,
@@ -72,6 +110,7 @@ export function AppStateProvider({
   const contractConfig = useMemo(
     () => ({
       ...baseContractConfig,
+      version: selectedEvent.version ?? baseContractConfig.version,
       eventId: selectedEvent.ticketEventId,
       eventName: selectedEvent.name,
       deploymentBlock:
@@ -81,6 +120,22 @@ export function AppStateProvider({
       ticketNftAddress: selectedEvent.ticketNftAddress,
       marketplaceAddress: selectedEvent.marketplaceAddress,
       checkInRegistryAddress: selectedEvent.checkInRegistryAddress,
+      fanFuelBankAddress:
+        selectedEvent.fanFuelBank && selectedEvent.fanFuelBank.length > 0
+          ? selectedEvent.fanFuelBank
+          : baseContractConfig.fanFuelBankAddress,
+      perkManagerAddress:
+        selectedEvent.perkManager && selectedEvent.perkManager.length > 0
+          ? selectedEvent.perkManager
+          : baseContractConfig.perkManagerAddress,
+      merchStoreAddress:
+        selectedEvent.merchStore && selectedEvent.merchStore.length > 0
+          ? selectedEvent.merchStore
+          : baseContractConfig.merchStoreAddress,
+      insurancePoolAddress:
+        selectedEvent.insurancePool && selectedEvent.insurancePool.length > 0
+          ? selectedEvent.insurancePool
+          : baseContractConfig.insurancePoolAddress,
     }),
     [baseContractConfig, selectedEvent],
   );
@@ -143,16 +198,31 @@ export function AppStateProvider({
         return;
       }
 
+      const prioritizedEvents = prioritizeAvailableEvents(
+        nextEvents,
+        nextPreferredEventId,
+      );
+
       setBffEventIds(nextBffEventIds);
-      setAvailableEvents(nextEvents);
+      setAvailableEvents(prioritizedEvents);
       setSelectedEventId((current) => {
-        if (nextEvents.some((event) => event.ticketEventId === current)) {
+        const currentExists = prioritizedEvents.some((event) => event.ticketEventId === current);
+        const preferredExists = prioritizedEvents.some(
+          (event) => event.ticketEventId === nextPreferredEventId,
+        );
+        const currentIsBootstrapFallback = current === fallbackEvent.ticketEventId;
+
+        if (currentIsBootstrapFallback && preferredExists) {
+          return nextPreferredEventId;
+        }
+
+        if (currentExists) {
           return current;
         }
 
         return (
-          nextEvents.find((event) => event.ticketEventId === nextPreferredEventId)?.ticketEventId ??
-          nextEvents[0]?.ticketEventId ??
+          prioritizedEvents.find((event) => event.ticketEventId === nextPreferredEventId)?.ticketEventId ??
+          prioritizedEvents[0]?.ticketEventId ??
           fallbackEvent.ticketEventId
         );
       });
@@ -187,6 +257,16 @@ export function AppStateProvider({
     walletProviders,
     selectedProviderId,
     setSelectedProviderId,
+    embeddedWalletEnabled,
+    embeddedWalletEmail,
+    setEmbeddedWalletEmail,
+    embeddedWalletCode,
+    setEmbeddedWalletCode,
+    embeddedWalletSession,
+    embeddedWalletDevCode,
+    isEmbeddedWalletBusy,
+    requestEmbeddedWalletCode,
+    verifyEmbeddedWalletCode,
     connectedProvider,
     walletAddress,
     walletChainId,
@@ -197,10 +277,13 @@ export function AppStateProvider({
     disconnectWallet,
   } = useWalletSession({
     contractConfig,
+    runtimeConfig,
     hasValidConfig,
     createClient,
+    createSponsoredClient: createSponsoredChainTicketClient,
     walletConnector,
     readClient,
+    bffClient,
     clearMessages,
     setErrorMessage,
     setStatusMessage,
@@ -387,6 +470,16 @@ export function AppStateProvider({
       walletProviders,
       selectedProviderId,
       setSelectedProviderId,
+      embeddedWalletEnabled,
+      embeddedWalletEmail,
+      setEmbeddedWalletEmail,
+      embeddedWalletCode,
+      setEmbeddedWalletCode,
+      embeddedWalletSession,
+      embeddedWalletDevCode,
+      isEmbeddedWalletBusy,
+      requestEmbeddedWalletCode,
+      verifyEmbeddedWalletCode,
       connectedProvider,
       walletAddress,
       walletChainId,
@@ -443,6 +536,11 @@ export function AppStateProvider({
       connectedProvider,
       contractConfig,
       disconnectWallet,
+      embeddedWalletCode,
+      embeddedWalletDevCode,
+      embeddedWalletEmail,
+      embeddedWalletEnabled,
+      embeddedWalletSession,
       errorMessage,
       fetchTicketTimeline,
       hasValidConfig,
@@ -459,6 +557,7 @@ export function AppStateProvider({
       marketStatsQuery.isLoading,
       pendingPreview,
       preparePreview,
+      requestEmbeddedWalletCode,
       refreshDashboard,
       runtimeConfig,
       selectedEvent.name,
@@ -466,6 +565,8 @@ export function AppStateProvider({
       setSelectedEventId,
       selectedProviderId,
       setSelectedProviderId,
+      setEmbeddedWalletCode,
+      setEmbeddedWalletEmail,
       setPendingPreview,
       setOnboardingSeen,
       setUiMode,
@@ -488,8 +589,10 @@ export function AppStateProvider({
       walletCapRemaining,
       walletChainId,
       walletProviders,
+      verifyEmbeddedWalletCode,
       watchAlerts,
       watchlist,
+      isEmbeddedWalletBusy,
     ],
   );
 

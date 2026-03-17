@@ -44,7 +44,16 @@ function scannerStatusTone(
 
 export function ScannerPage() {
   const { locale, t } = useI18n();
-  const { userRoles, preparePreview, setErrorMessage, txState, uiMode } = useAppState();
+  const {
+    userRoles,
+    preparePreview,
+    setErrorMessage,
+    txState,
+    uiMode,
+    availableEvents,
+    selectedEventId,
+    systemState,
+  } = useAppState();
 
   const [tokenInput, setTokenInput] = useState("");
   const [lastDetectedValue, setLastDetectedValue] = useState("");
@@ -52,6 +61,9 @@ export function ScannerPage() {
     locale === "fr" ? "Pret pour le prochain participant." : "Ready for the next attendee.",
   );
   const [sessionCheckIns, setSessionCheckIns] = useState<string[]>([]);
+  const selectedEvent =
+    availableEvents.find((event) => event.ticketEventId === selectedEventId) ?? null;
+  const isV2Event = (selectedEvent?.version ?? systemState?.version ?? "v1") === "v2";
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const lastSubmittedTokenRef = useRef<string>("");
@@ -126,7 +138,10 @@ export function ScannerPage() {
   }, [sessionCheckIns]);
 
   useEffect(() => {
-    if (txState.label !== "Scanner check-in") {
+    if (
+      txState.label !== "Scanner check-in" &&
+      txState.label !== "Scanner collectible check-in"
+    ) {
       return;
     }
 
@@ -136,9 +151,13 @@ export function ScannerPage() {
         current.includes(tokenId) ? current : [tokenId, ...current].slice(0, 8),
       );
       setScannerNotice(
-        locale === "fr"
-          ? `Ticket #${tokenId} check-in avec succes.`
-          : `Ticket #${tokenId} successfully checked in.`,
+        isV2Event
+          ? locale === "fr"
+            ? `Ticket #${tokenId} check-in et transforme en collectible.`
+            : `Ticket #${tokenId} checked in and transformed into a collectible.`
+          : locale === "fr"
+            ? `Ticket #${tokenId} check-in avec succes.`
+            : `Ticket #${tokenId} successfully checked in.`,
       );
     }
 
@@ -155,7 +174,7 @@ export function ScannerPage() {
                 : "Check-in failed. Review the token and retry."),
       );
     }
-  }, [locale, txState]);
+  }, [isV2Event, locale, txState]);
 
   const onMarkUsed = async () => {
     const tokenId = parseTokenIdInput(tokenInput);
@@ -182,21 +201,42 @@ export function ScannerPage() {
     );
 
     await preparePreview({
-      label: "Scanner check-in",
+      label: isV2Event ? "Scanner collectible check-in" : "Scanner check-in",
       description:
-        locale === "fr"
-          ? "Marquer le ticket comme utilise on-chain. Cette action est irreversible."
-          : "Mark ticket as used on-chain. This action is irreversible.",
+        isV2Event
+          ? locale === "fr"
+            ? "Consommer le ticket a l'entree puis mint le collectible souvenir. Cette action est irreversible."
+            : "Consume the ticket at check-in, then mint the souvenir collectible. This action is irreversible."
+          : locale === "fr"
+            ? "Marquer le ticket comme utilise on-chain. Cette action est irreversible."
+            : "Mark ticket as used on-chain. This action is irreversible.",
+      action: isV2Event
+        ? { type: "checkin_transform", tokenId }
+        : { type: "checkin_mark_used", tokenId },
       details: [
         locale === "fr" ? "Confirme l'autorisation du role scanner." : "Confirms scanner role authorization.",
         locale === "fr"
           ? "Verifie que le ticket existe et n'est pas deja utilise."
           : "Verifies ticket exists and is not already used.",
-        locale === "fr"
-          ? "Ecrit une preuve de check-in immutable on-chain."
-          : "Writes immutable check-in proof on-chain.",
+        isV2Event
+          ? locale === "fr"
+            ? "Brule le ticket d'entree et envoie un collectible au wallet du fan."
+            : "Burns the entry ticket and sends a collectible to the fan wallet."
+          : locale === "fr"
+            ? "Ecrit une preuve de check-in immutable on-chain."
+            : "Writes immutable check-in proof on-chain.",
       ],
       run: async (client) => {
+        if (isV2Event) {
+          if (!client.checkInToCollectible) {
+            throw new Error(
+              locale === "fr"
+                ? "La methode scanner collectible est indisponible dans ce client."
+                : "Collectible scanner method is unavailable in this client.",
+            );
+          }
+          return client.checkInToCollectible(tokenId);
+        }
         if (!client.markTicketUsed) {
           throw new Error(
             locale === "fr"

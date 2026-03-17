@@ -1,3 +1,6 @@
+import { JsonRpcProvider, VoidSigner } from "ethers";
+
+import type { BffClient } from "./bffClient";
 import type {
   ChainTicketClient,
   ChainTicketEvent,
@@ -15,6 +18,7 @@ import {
 } from "./chainTicketClient/bindings";
 import type { ChainTicketBindings } from "./chainTicketClient/internalTypes";
 import {
+  BUYBACK_ROLE,
   DEFAULT_ADMIN_ROLE,
   normalizeAddress,
   PAUSER_ROLE,
@@ -31,6 +35,16 @@ import { buildTicketTimeline } from "./chainTicketClient/ticketTimeline";
 
 export { createListingHealth };
 export type { ChainTicketClientOptions };
+
+const SPONSORED_WALLET_LIMITATION =
+  "This embedded wallet beta currently sponsors checkout, insurance claims, perks, and merch. Switch to a browser wallet for resale or organizer actions.";
+
+function toSponsoredTxResponse<T extends { txHash: string }>(result: T) {
+  return {
+    hash: result.txHash,
+    wait: async () => result,
+  };
+}
 
 export function createChainTicketClientFromBindings(
   config: ContractConfig,
@@ -53,9 +67,12 @@ export function createChainTicketClientFromBindings(
 
   const getUserRoles = async (address: string) => {
     const normalizedAddress = normalizeAddress(address);
-    const [ticketAdmin, ticketPauser, scannerAdmin, scanner] = await Promise.all([
+    const [ticketAdmin, buybackOperator, ticketPauser, scannerAdmin, scanner] = await Promise.all([
       bindings.ticket.hasRole
         ? bindings.ticket.hasRole(DEFAULT_ADMIN_ROLE, normalizedAddress).catch(() => false)
+        : Promise.resolve(false),
+      bindings.marketplace.hasRole
+        ? bindings.marketplace.hasRole(BUYBACK_ROLE, normalizedAddress).catch(() => false)
         : Promise.resolve(false),
       bindings.ticket.hasRole
         ? bindings.ticket.hasRole(PAUSER_ROLE, normalizedAddress).catch(() => false)
@@ -70,6 +87,7 @@ export function createChainTicketClientFromBindings(
 
     return {
       isAdmin: ticketAdmin,
+      isBuybackOperator: buybackOperator,
       isScannerAdmin: scannerAdmin,
       isPauser: ticketPauser,
       isScanner: scanner,
@@ -174,17 +192,23 @@ export function createChainTicketClientFromBindings(
     getSystemState: async () => {
       const [
         primaryPrice,
+        insurancePremium,
         maxSupply,
         totalMinted,
         maxPerWallet,
+        fanPassSupplyCap,
+        fanPassMinted,
         paused,
         collectibleMode,
         baseUris,
       ] = await Promise.all([
         bindings.ticket.primaryPrice(),
+        bindings.ticket.insurancePremium?.().catch(() => null) ?? Promise.resolve(null),
         bindings.ticket.maxSupply(),
         bindings.ticket.totalMinted(),
         bindings.ticket.maxPerWallet(),
+        bindings.ticket.fanPassSupplyCap?.().catch(() => null) ?? Promise.resolve(null),
+        bindings.ticket.fanPassMinted?.().catch(() => null) ?? Promise.resolve(null),
         bindings.ticket.paused(),
         bindings.ticket.collectibleMode(),
         bindings.ticket.baseUris
@@ -199,10 +223,14 @@ export function createChainTicketClientFromBindings(
       ]);
 
       return {
+        version: config.version ?? "v1",
         primaryPrice,
+        insurancePremium: insurancePremium ?? undefined,
         maxSupply,
         totalMinted,
         maxPerWallet,
+        fanPassSupplyCap: fanPassSupplyCap ?? undefined,
+        fanPassMinted: fanPassMinted ?? undefined,
         paused,
         collectibleMode,
         baseTokenURI: baseUris.baseTokenURI,
@@ -239,6 +267,31 @@ export function createChainTicketClientFromBindings(
       return bindings.ticket.mintPrimary(price);
     },
 
+    mintStandardTicket: async (insured: boolean) => {
+      if (!bindings.ticket.mintStandard) {
+        throw new Error("Standard V2 mint is unavailable in the current client.");
+      }
+      const price = await bindings.ticket.primaryPrice();
+      const insurancePremium =
+        insured ? await (bindings.ticket.insurancePremium?.() ?? Promise.resolve(0n)) : 0n;
+      return bindings.ticket.mintStandard(insured, price + insurancePremium);
+    },
+
+    mintFanPassTicket: async (attestation, insured: boolean) => {
+      if (!bindings.ticket.mintFanPass) {
+        throw new Error("FanPass mint is unavailable in the current client.");
+      }
+      const price = await bindings.ticket.primaryPrice();
+      const insurancePremium =
+        insured ? await (bindings.ticket.insurancePremium?.() ?? Promise.resolve(0n)) : 0n;
+      return bindings.ticket.mintFanPass(
+        attestation.signature,
+        insured,
+        attestation.deadline,
+        price + insurancePremium,
+      );
+    },
+
     approveTicket: async (tokenId: bigint) => bindings.ticket.approve(config.marketplaceAddress, tokenId),
 
     listTicket: async (tokenId: bigint, price: bigint) => bindings.marketplace.list(tokenId, price),
@@ -251,6 +304,35 @@ export function createChainTicketClientFromBindings(
 
     buyTicket: async (tokenId: bigint, price: bigint) => bindings.marketplace.buy(tokenId, price),
 
+    organizerBuyback: async (tokenId: bigint) => {
+      if (!bindings.marketplace.organizerBuyback) {
+        throw new Error("Organizer buyback is unavailable in the current client.");
+      }
+      const price = await bindings.ticket.primaryPrice();
+      return bindings.marketplace.organizerBuyback(tokenId, price);
+    },
+
+    claimInsurance: async (tokenId: bigint) => {
+      if (!bindings.insurancePool?.claim) {
+        throw new Error("Insurance claim is unavailable in the current client.");
+      }
+      return bindings.insurancePool.claim(tokenId);
+    },
+
+    redeemPerk: async (perkId: string) => {
+      if (!bindings.perkManager?.redeemPerk) {
+        throw new Error("Perk redemption is unavailable in the current client.");
+      }
+      return bindings.perkManager.redeemPerk(perkId);
+    },
+
+    redeemMerch: async (skuId: string) => {
+      if (!bindings.merchStore?.redeem) {
+        throw new Error("Merch redemption is unavailable in the current client.");
+      }
+      return bindings.merchStore.redeem(skuId);
+    },
+
     getUserRoles,
 
     markTicketUsed: async (tokenId: bigint) => {
@@ -258,6 +340,14 @@ export function createChainTicketClientFromBindings(
         throw new Error("Check-in write function is unavailable in the current client.");
       }
       return bindings.checkInRegistry.markUsed(tokenId);
+    },
+
+    checkInToCollectible: async (tokenId: bigint) => {
+      if (!bindings.checkInRegistry.checkInAndTransform) {
+        throw new Error("Collectible check-in is unavailable in the current client.");
+      }
+      const owner = await bindings.ticket.ownerOf(tokenId);
+      return bindings.checkInRegistry.checkInAndTransform(tokenId, owner);
     },
 
     grantScannerRole: async (account: string) => {
@@ -303,4 +393,95 @@ export function createChainTicketClient(
 ): ChainTicketClient {
   const bindings = createEthersBindings(config, options);
   return createChainTicketClientFromBindings(config, bindings);
+}
+
+export function createSponsoredChainTicketClient(
+  config: ContractConfig,
+  options: {
+    address: string;
+    sessionToken: string;
+    bffClient: BffClient;
+    providerInfo: WalletProviderInfo;
+  },
+): ChainTicketClient {
+  const readProvider = new JsonRpcProvider(config.rpcUrl, config.chainId);
+  const baseClient = createChainTicketClient(config, {
+    signer: new VoidSigner(options.address, readProvider),
+    readProvider,
+  });
+
+  const unsupported = async () => {
+    throw new Error(SPONSORED_WALLET_LIMITATION);
+  };
+
+  return {
+    ...baseClient,
+    discoverWallets: async () => [options.providerInfo],
+    mintPrimary: async () => {
+      if (config.version !== "v2") {
+        throw new Error("Sponsored wallet mint is only enabled on upgraded deployments.");
+      }
+
+      const result = await options.bffClient.runSponsoredWalletAction(options.sessionToken, {
+        eventId: config.eventId,
+        action: "mint_standard",
+        insured: false,
+      });
+
+      return toSponsoredTxResponse(result);
+    },
+    mintStandardTicket: async (insured: boolean) => {
+      const result = await options.bffClient.runSponsoredWalletAction(options.sessionToken, {
+        eventId: config.eventId,
+        action: "mint_standard",
+        insured,
+      });
+      return toSponsoredTxResponse(result);
+    },
+    mintFanPassTicket: async (_attestation, insured: boolean) => {
+      const result = await options.bffClient.runSponsoredWalletAction(options.sessionToken, {
+        eventId: config.eventId,
+        action: "mint_fanpass",
+        insured,
+      });
+      return toSponsoredTxResponse(result);
+    },
+    claimInsurance: async (tokenId: bigint) => {
+      const result = await options.bffClient.runSponsoredWalletAction(options.sessionToken, {
+        eventId: config.eventId,
+        action: "claim_insurance",
+        tokenId,
+      });
+      return toSponsoredTxResponse(result);
+    },
+    redeemPerk: async (perkId: string) => {
+      const result = await options.bffClient.runSponsoredWalletAction(options.sessionToken, {
+        eventId: config.eventId,
+        action: "redeem_perk",
+        perkId,
+      });
+      return toSponsoredTxResponse(result);
+    },
+    redeemMerch: async (skuId: string) => {
+      const result = await options.bffClient.runSponsoredWalletAction(options.sessionToken, {
+        eventId: config.eventId,
+        action: "redeem_merch",
+        skuId,
+      });
+      return toSponsoredTxResponse(result);
+    },
+    approveTicket: unsupported,
+    listTicket: unsupported,
+    listTicketWithPermit: unsupported,
+    cancelListing: unsupported,
+    buyTicket: unsupported,
+    organizerBuyback: unsupported,
+    markTicketUsed: unsupported,
+    checkInToCollectible: unsupported,
+    grantScannerRole: unsupported,
+    revokeScannerRole: unsupported,
+    pauseSystem: unsupported,
+    unpauseSystem: unsupported,
+    setCollectibleMode: unsupported,
+  };
 }

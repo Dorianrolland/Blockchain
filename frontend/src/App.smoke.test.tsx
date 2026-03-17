@@ -35,11 +35,14 @@ const runtimeConfig: RuntimeConfig = {
   governanceTimelockAddress: null,
   governanceMinDelaySeconds: 0,
   governancePortalUrl: null,
+  embeddedWalletEnabled: false,
+  embeddedWalletLabel: "Embedded Wallet Beta",
 };
 
 const providerInfo: WalletProviderInfo = {
   id: "wallet-1",
   name: "MetaMask",
+  kind: "injected",
   isMetaMask: true,
   provider: {
     isMetaMask: true,
@@ -113,6 +116,7 @@ function buildReadClient(ticketsUsed = true): ChainTicketClient {
     buyTicket: vi.fn().mockResolvedValue(tx("0xbuy")),
     getUserRoles: vi.fn().mockResolvedValue({
       isAdmin: true,
+      isBuybackOperator: false,
       isScannerAdmin: true,
       isPauser: true,
       isScanner: true,

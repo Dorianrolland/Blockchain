@@ -6,7 +6,13 @@ import type {
   PreflightResult,
 } from "../../types/chainticket";
 import type { ChainTicketBindings } from "./internalTypes";
-import { normalizeAddress, sameAddress, ZERO_ADDRESS } from "./parsers";
+import {
+  BUYBACK_ROLE,
+  normalizeAddress,
+  sameAddress,
+  SCANNER_ROLE,
+  ZERO_ADDRESS,
+} from "./parsers";
 
 async function safeSimulation(
   simulate: (() => Promise<void>) | undefined,
@@ -140,11 +146,25 @@ export function buildPreflightAction({
         bindings.ticket.primaryPrice(),
         bindings.ticket.totalMinted(),
         bindings.ticket.maxSupply(),
+        bindings.ticket.insurancePremium?.().catch(() => null) ?? Promise.resolve(null),
+        bindings.ticket.fanPassSupplyCap?.().catch(() => null) ?? Promise.resolve(null),
+        bindings.ticket.fanPassMinted?.().catch(() => null) ?? Promise.resolve(null),
       ]),
       getWalletCapRemaining(bindings, signerAddress),
     ]);
 
-    const [isPaused, primaryPrice, totalMinted, maxSupply] = systemState;
+    const [
+      isPaused,
+      primaryPrice,
+      totalMinted,
+      maxSupply,
+      insurancePremiumValue,
+      fanPassSupplyCap,
+      fanPassMinted,
+    ] = systemState;
+    const insurancePremium = insurancePremiumValue ?? 0n;
+    const standardSupplyCap = fanPassSupplyCap !== null ? maxSupply - fanPassSupplyCap : null;
+    const standardMinted = fanPassMinted !== null ? totalMinted - fanPassMinted : null;
 
     if (isPaused) {
       blockers.push("System is paused.");
@@ -166,6 +186,316 @@ export function buildPreflightAction({
       const simulation = await safeSimulation(
         () => bindings.ticket.simulateMint?.(primaryPrice) ?? Promise.resolve(),
         () => bindings.ticket.estimateMintGas?.(primaryPrice) ?? Promise.resolve(0n),
+        blockers,
+      );
+      simulationPassed = simulation.simulationPassed;
+      gasEstimate = simulation.gasEstimate;
+    }
+
+    if (action.type === "mint_standard") {
+      if (totalMinted >= maxSupply) {
+        blockers.push("Event is sold out.");
+      }
+
+      if (
+        standardMinted !== null &&
+        standardSupplyCap !== null &&
+        standardMinted >= standardSupplyCap
+      ) {
+        blockers.push("Standard allocation exhausted.");
+      }
+
+      if (walletCapRemaining !== null && walletCapRemaining <= 0n) {
+        blockers.push("Wallet ticket limit reached.");
+      }
+
+      const totalValue = primaryPrice + (action.insured ? insurancePremium : 0n);
+      const simulation = await safeSimulation(
+        bindings.ticket.simulateMintStandard
+          ? () => bindings.ticket.simulateMintStandard?.(action.insured, totalValue) ?? Promise.resolve()
+          : !action.insured && bindings.ticket.simulateMint
+            ? () => bindings.ticket.simulateMint?.(totalValue) ?? Promise.resolve()
+            : undefined,
+        bindings.ticket.estimateMintStandardGas
+          ? () =>
+              bindings.ticket.estimateMintStandardGas?.(action.insured, totalValue) ??
+              Promise.resolve(0n)
+          : !action.insured && bindings.ticket.estimateMintGas
+            ? () => bindings.ticket.estimateMintGas?.(totalValue) ?? Promise.resolve(0n)
+            : undefined,
+        blockers,
+      );
+      simulationPassed = simulation.simulationPassed;
+      gasEstimate = simulation.gasEstimate;
+    }
+
+    if (action.type === "mint_fanpass") {
+      if (totalMinted >= maxSupply) {
+        blockers.push("Event is sold out.");
+      }
+
+      if (fanPassMinted !== null && fanPassSupplyCap !== null && fanPassMinted >= fanPassSupplyCap) {
+        blockers.push("FanPass allocation exhausted.");
+      }
+
+      if (walletCapRemaining !== null && walletCapRemaining <= 0n) {
+        blockers.push("Wallet ticket limit reached.");
+      }
+
+      const totalValue = primaryPrice + (action.insured ? insurancePremium : 0n);
+      const simulation = await safeSimulation(
+        bindings.ticket.simulateMintFanPass
+          ? () =>
+              bindings.ticket.simulateMintFanPass?.(
+                action.signature,
+                action.insured,
+                action.deadline,
+                totalValue,
+              ) ?? Promise.resolve()
+          : undefined,
+        bindings.ticket.estimateMintFanPassGas
+          ? () =>
+              bindings.ticket.estimateMintFanPassGas?.(
+                action.signature,
+                action.insured,
+                action.deadline,
+                totalValue,
+              ) ?? Promise.resolve(0n)
+          : undefined,
+        blockers,
+      );
+      simulationPassed = simulation.simulationPassed;
+      gasEstimate = simulation.gasEstimate;
+    }
+
+    if (action.type === "checkin_mark_used" || action.type === "checkin_transform") {
+      if (bindings.checkInRegistry.hasRole) {
+        try {
+          const hasScannerRole = await bindings.checkInRegistry.hasRole(SCANNER_ROLE, signerAddress);
+          if (!hasScannerRole) {
+            blockers.push("SCANNER_ROLE is required for check-in.");
+          }
+        } catch (error) {
+          blockers.push(mapEthersError(error));
+        }
+      }
+
+      let owner: string | null = null;
+      try {
+        const [resolvedOwner, used] = await Promise.all([
+          bindings.ticket.ownerOf(action.tokenId),
+          bindings.checkInRegistry.isUsed(action.tokenId),
+        ]);
+        owner = resolvedOwner;
+        if (used) {
+          blockers.push("Ticket already used.");
+        }
+      } catch (error) {
+        blockers.push(mapEthersError(error));
+      }
+
+      if (action.type === "checkin_mark_used") {
+        const simulation = await safeSimulation(
+          bindings.checkInRegistry.simulateMarkUsed
+            ? () => bindings.checkInRegistry.simulateMarkUsed?.(action.tokenId) ?? Promise.resolve()
+            : undefined,
+          bindings.checkInRegistry.estimateMarkUsedGas
+            ? () => bindings.checkInRegistry.estimateMarkUsedGas?.(action.tokenId) ?? Promise.resolve(0n)
+            : undefined,
+          blockers,
+        );
+        simulationPassed = simulation.simulationPassed;
+        gasEstimate = simulation.gasEstimate;
+      }
+
+      if (action.type === "checkin_transform") {
+        if (!bindings.checkInRegistry.checkInAndTransform) {
+          blockers.push("Collectible check-in is unavailable in this wallet client.");
+        }
+
+        const receiver = owner ?? signerAddress;
+        const simulation = await safeSimulation(
+          bindings.checkInRegistry.simulateCheckInAndTransform
+            ? () =>
+                bindings.checkInRegistry.simulateCheckInAndTransform?.(action.tokenId, receiver) ??
+                Promise.resolve()
+            : undefined,
+          bindings.checkInRegistry.estimateCheckInAndTransformGas
+            ? () =>
+                bindings.checkInRegistry.estimateCheckInAndTransformGas?.(action.tokenId, receiver) ??
+                Promise.resolve(0n)
+            : undefined,
+          blockers,
+        );
+        simulationPassed = simulation.simulationPassed;
+        gasEstimate = simulation.gasEstimate;
+      }
+    }
+
+    if (action.type === "claim_insurance") {
+      const insurancePool = bindings.insurancePool;
+
+      if (!insurancePool?.claim) {
+        blockers.push("Insurance claim is unavailable in this wallet client.");
+      }
+
+      try {
+        const owner = await bindings.ticket.ownerOf(action.tokenId);
+        if (!sameAddress(owner, signerAddress)) {
+          blockers.push("Only the ticket owner can claim insurance.");
+        }
+      } catch (error) {
+        blockers.push(mapEthersError(error));
+      }
+
+      if (bindings.ticket.coverageOf) {
+        try {
+          const coverage = await bindings.ticket.coverageOf(action.tokenId);
+          if (!coverage.insured) {
+            blockers.push("Ticket is not insured.");
+          }
+          if (coverage.claimed) {
+            blockers.push("Coverage already claimed.");
+          }
+          if (!coverage.claimable) {
+            blockers.push("Insurance claim is not open.");
+          }
+        } catch (error) {
+          blockers.push(mapEthersError(error));
+        }
+      } else {
+        warnings.push("Coverage status could not be verified in preflight.");
+      }
+
+      const simulation = await safeSimulation(
+        insurancePool?.simulateClaim
+          ? () => insurancePool.simulateClaim?.(action.tokenId) ?? Promise.resolve()
+          : undefined,
+        insurancePool?.estimateClaimGas
+          ? () => insurancePool.estimateClaimGas?.(action.tokenId) ?? Promise.resolve(0n)
+          : undefined,
+        blockers,
+      );
+      simulationPassed = simulation.simulationPassed;
+      gasEstimate = simulation.gasEstimate;
+    }
+
+    if (action.type === "redeem_perk") {
+      const perkManager = bindings.perkManager;
+
+      if (!perkManager?.redeemPerk) {
+        blockers.push("Perk redemption is unavailable in this wallet client.");
+      }
+
+      if (!action.perkId.trim()) {
+        blockers.push("Perk id is required for perk redemption.");
+      }
+
+      let perkFuelCost: bigint | null = null;
+      if (perkManager?.perkOf) {
+        try {
+          const perk = await perkManager.perkOf(action.perkId);
+          perkFuelCost = perk.fuelCost;
+
+          if (!perk.active) {
+            blockers.push("Selected perk is inactive.");
+          }
+        } catch (error) {
+          blockers.push(mapEthersError(error));
+        }
+      } else {
+        warnings.push("Perk state could not be verified in preflight.");
+      }
+
+      if (perkManager?.canAccess) {
+        try {
+          const unlocked = await perkManager.canAccess(signerAddress, action.perkId);
+          if (!unlocked) {
+            blockers.push("Perk is still locked for this fan.");
+          }
+        } catch (error) {
+          blockers.push(mapEthersError(error));
+        }
+      } else {
+        warnings.push("Perk access could not be verified in preflight.");
+      }
+
+      if (bindings.fanFuelBank?.balanceOf) {
+        try {
+          const balance = await bindings.fanFuelBank.balanceOf(signerAddress);
+          if (perkFuelCost !== null && balance < perkFuelCost) {
+            blockers.push("Insufficient FanFuel balance for this perk.");
+          }
+        } catch (error) {
+          blockers.push(mapEthersError(error));
+        }
+      } else {
+        warnings.push("FanFuel balance could not be verified in preflight.");
+      }
+
+      const simulation = await safeSimulation(
+        perkManager?.simulateRedeemPerk
+          ? () => perkManager.simulateRedeemPerk?.(action.perkId) ?? Promise.resolve()
+          : undefined,
+        perkManager?.estimateRedeemPerkGas
+          ? () => perkManager.estimateRedeemPerkGas?.(action.perkId) ?? Promise.resolve(0n)
+          : undefined,
+        blockers,
+      );
+      simulationPassed = simulation.simulationPassed;
+      gasEstimate = simulation.gasEstimate;
+    }
+
+    if (action.type === "redeem_merch") {
+      const merchStore = bindings.merchStore;
+
+      if (!merchStore?.redeem) {
+        blockers.push("Merch redemption is unavailable in this wallet client.");
+      }
+
+      if (!action.skuId.trim()) {
+        blockers.push("SKU id is required for merch redemption.");
+      }
+
+      let skuPrice: bigint | null = null;
+      if (merchStore?.getSku) {
+        try {
+          const sku = await merchStore.getSku(action.skuId);
+          skuPrice = sku.price;
+
+          if (!sku.active) {
+            blockers.push("Selected merch SKU is inactive.");
+          }
+          if (sku.stock <= 0n) {
+            blockers.push("Selected merch SKU is out of stock.");
+          }
+        } catch (error) {
+          blockers.push(mapEthersError(error));
+        }
+      } else {
+        warnings.push("SKU availability could not be verified in preflight.");
+      }
+
+      if (bindings.fanFuelBank?.balanceOf) {
+        try {
+          const balance = await bindings.fanFuelBank.balanceOf(signerAddress);
+          if (skuPrice !== null && balance < skuPrice) {
+            blockers.push("Insufficient FanFuel balance for this redemption.");
+          }
+        } catch (error) {
+          blockers.push(mapEthersError(error));
+        }
+      } else {
+        warnings.push("FanFuel balance could not be verified in preflight.");
+      }
+
+      const simulation = await safeSimulation(
+        merchStore?.simulateRedeem
+          ? () => merchStore.simulateRedeem?.(action.skuId) ?? Promise.resolve()
+          : undefined,
+        merchStore?.estimateRedeemGas
+          ? () => merchStore.estimateRedeemGas?.(action.skuId) ?? Promise.resolve(0n)
+          : undefined,
         blockers,
       );
       simulationPassed = simulation.simulationPassed;
@@ -208,9 +538,15 @@ export function buildPreflightAction({
       }
 
       try {
-        const owner = await bindings.ticket.ownerOf(action.tokenId);
+        const [owner, ticketClass] = await Promise.all([
+          bindings.ticket.ownerOf(action.tokenId),
+          bindings.ticket.ticketClassOf?.(action.tokenId).catch(() => null) ?? Promise.resolve(null),
+        ]);
         if (!sameAddress(owner, signerAddress)) {
           blockers.push("Only the owner can list this ticket.");
+        }
+        if (ticketClass !== null && ticketClass !== 0) {
+          blockers.push("FanPass cannot be listed.");
         }
 
         const approved = await bindings.ticket.getApproved?.(action.tokenId);
@@ -257,9 +593,15 @@ export function buildPreflightAction({
       }
 
       try {
-        const owner = await bindings.ticket.ownerOf(action.tokenId);
+        const [owner, ticketClass] = await Promise.all([
+          bindings.ticket.ownerOf(action.tokenId),
+          bindings.ticket.ticketClassOf?.(action.tokenId).catch(() => null) ?? Promise.resolve(null),
+        ]);
         if (!sameAddress(owner, signerAddress)) {
           blockers.push("Only the owner can list this ticket.");
+        }
+        if (ticketClass !== null && ticketClass !== 0) {
+          blockers.push("FanPass cannot be listed.");
         }
       } catch (error) {
         blockers.push(mapEthersError(error));
@@ -349,6 +691,16 @@ export function buildPreflightAction({
       if (walletCapRemaining !== null && walletCapRemaining <= 0n) {
         blockers.push("Buyer wallet limit reached.");
       }
+      if (bindings.ticket.ticketClassOf) {
+        try {
+          const ticketClass = await bindings.ticket.ticketClassOf(action.tokenId);
+          if (ticketClass !== 0) {
+            blockers.push("FanPass cannot be resold.");
+          }
+        } catch (error) {
+          blockers.push(mapEthersError(error));
+        }
+      }
 
       const simulation = await safeSimulation(
         bindings.marketplace.simulateBuy
@@ -356,6 +708,73 @@ export function buildPreflightAction({
           : undefined,
         bindings.marketplace.estimateBuyGas
           ? () => bindings.marketplace.estimateBuyGas?.(action.tokenId, action.price) ?? Promise.resolve(0n)
+          : undefined,
+        blockers,
+      );
+      simulationPassed = simulation.simulationPassed;
+      gasEstimate = simulation.gasEstimate;
+    }
+
+    if (action.type === "organizer_buyback") {
+      if (!bindings.marketplace.organizerBuyback) {
+        blockers.push("Organizer buyback is unavailable in this wallet client.");
+      }
+
+      if (bindings.marketplace.hasRole) {
+        try {
+          const hasBuybackRole = await bindings.marketplace.hasRole(BUYBACK_ROLE, signerAddress);
+          if (!hasBuybackRole) {
+            blockers.push("BUYBACK_ROLE is required for organizer buyback.");
+          }
+        } catch (error) {
+          blockers.push(mapEthersError(error));
+        }
+      }
+
+      try {
+        const [owner, used, ticketClass] = await Promise.all([
+          bindings.ticket.ownerOf(action.tokenId),
+          bindings.checkInRegistry.isUsed(action.tokenId),
+          bindings.ticket.ticketClassOf?.(action.tokenId).catch(() => null) ?? Promise.resolve(null),
+        ]);
+
+        if (sameAddress(owner, ZERO_ADDRESS)) {
+          blockers.push("Ticket owner could not be resolved.");
+        }
+        if (used) {
+          blockers.push("Used tickets cannot be bought back.");
+        }
+        if (ticketClass !== null && ticketClass !== 1) {
+          blockers.push("Only FanPass tickets can be bought back.");
+        }
+
+        const approved = await bindings.ticket.getApproved?.(action.tokenId);
+        const approvedForAll = await bindings.ticket.isApprovedForAll?.(
+          owner,
+          config.marketplaceAddress,
+        );
+
+        if (
+          approved !== undefined &&
+          !sameAddress(approved, config.marketplaceAddress) &&
+          !approvedForAll
+        ) {
+          blockers.push("Marketplace approval missing for this token.");
+        }
+      } catch (error) {
+        blockers.push(mapEthersError(error));
+      }
+
+      const simulation = await safeSimulation(
+        bindings.marketplace.simulateOrganizerBuyback
+          ? () =>
+              bindings.marketplace.simulateOrganizerBuyback?.(action.tokenId, primaryPrice) ??
+              Promise.resolve()
+          : undefined,
+        bindings.marketplace.estimateOrganizerBuybackGas
+          ? () =>
+              bindings.marketplace.estimateOrganizerBuybackGas?.(action.tokenId, primaryPrice) ??
+              Promise.resolve(0n)
           : undefined,
         blockers,
       );

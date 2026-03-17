@@ -11,44 +11,112 @@ import * as Contracts from "./index.js";
 declare module "@nomicfoundation/hardhat-ethers/types" {
   interface HardhatEthersHelpers extends HardhatEthersHelpersBase {
   getContractFactory(name: 'ChainTicketFactory', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.ChainTicketFactory__factory>
+getContractFactory(name: 'ChainTicketFactoryV2', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.ChainTicketFactoryV2__factory>
 getContractFactory(name: 'ChainTicketTimelock', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.ChainTicketTimelock__factory>
 getContractFactory(name: 'CheckInRegistry', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.CheckInRegistry__factory>
+getContractFactory(name: 'CheckInRegistryV2', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.CheckInRegistryV2__factory>
+getContractFactory(name: 'CollectibleNFT', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.CollectibleNFT__factory>
+getContractFactory(name: 'FanFuelBank', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.FanFuelBank__factory>
+getContractFactory(name: 'FanScoreRegistry', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.FanScoreRegistry__factory>
+getContractFactory(name: 'InsurancePool', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.InsurancePool__factory>
 getContractFactory(name: 'ICheckInRegistry', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.ICheckInRegistry__factory>
+getContractFactory(name: 'ICollectibleNFT', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.ICollectibleNFT__factory>
 getContractFactory(name: 'IERC4494', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.IERC4494__factory>
+getContractFactory(name: 'IFanFuelBank', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.IFanFuelBank__factory>
+getContractFactory(name: 'IFanScoreRegistry', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.IFanScoreRegistry__factory>
+getContractFactory(name: 'IInsurancePool', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.IInsurancePool__factory>
 getContractFactory(name: 'ITicketNFT', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.ITicketNFT__factory>
+getContractFactory(name: 'ITicketNFTV2', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.ITicketNFTV2__factory>
 getContractFactory(name: 'ITicketSystemState', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.ITicketSystemState__factory>
 getContractFactory(name: 'Marketplace', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.Marketplace__factory>
+getContractFactory(name: 'MarketplaceV2', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.MarketplaceV2__factory>
+getContractFactory(name: 'MerchStore', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.MerchStore__factory>
+getContractFactory(name: 'MerchTwinNFT', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.MerchTwinNFT__factory>
+getContractFactory(name: 'PerkManager', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.PerkManager__factory>
 getContractFactory(name: 'TicketNFT', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.TicketNFT__factory>
+getContractFactory(name: 'TicketNFTV2', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.TicketNFTV2__factory>
+getContractFactory(name: 'WeatherOracleAdapter', signerOrOptions?: ethers.Signer | FactoryOptions): Promise<Contracts.WeatherOracleAdapter__factory>
 
   getContractAt(name: 'ChainTicketFactory', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.ChainTicketFactory>
+getContractAt(name: 'ChainTicketFactoryV2', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.ChainTicketFactoryV2>
 getContractAt(name: 'ChainTicketTimelock', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.ChainTicketTimelock>
 getContractAt(name: 'CheckInRegistry', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.CheckInRegistry>
+getContractAt(name: 'CheckInRegistryV2', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.CheckInRegistryV2>
+getContractAt(name: 'CollectibleNFT', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.CollectibleNFT>
+getContractAt(name: 'FanFuelBank', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.FanFuelBank>
+getContractAt(name: 'FanScoreRegistry', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.FanScoreRegistry>
+getContractAt(name: 'InsurancePool', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.InsurancePool>
 getContractAt(name: 'ICheckInRegistry', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.ICheckInRegistry>
+getContractAt(name: 'ICollectibleNFT', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.ICollectibleNFT>
 getContractAt(name: 'IERC4494', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.IERC4494>
+getContractAt(name: 'IFanFuelBank', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.IFanFuelBank>
+getContractAt(name: 'IFanScoreRegistry', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.IFanScoreRegistry>
+getContractAt(name: 'IInsurancePool', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.IInsurancePool>
 getContractAt(name: 'ITicketNFT', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.ITicketNFT>
+getContractAt(name: 'ITicketNFTV2', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.ITicketNFTV2>
 getContractAt(name: 'ITicketSystemState', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.ITicketSystemState>
 getContractAt(name: 'Marketplace', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.Marketplace>
+getContractAt(name: 'MarketplaceV2', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.MarketplaceV2>
+getContractAt(name: 'MerchStore', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.MerchStore>
+getContractAt(name: 'MerchTwinNFT', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.MerchTwinNFT>
+getContractAt(name: 'PerkManager', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.PerkManager>
 getContractAt(name: 'TicketNFT', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.TicketNFT>
+getContractAt(name: 'TicketNFTV2', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.TicketNFTV2>
+getContractAt(name: 'WeatherOracleAdapter', address: string | ethers.Addressable, signer?: ethers.Signer): Promise<Contracts.WeatherOracleAdapter>
 
   deployContract(name: 'ChainTicketFactory', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.ChainTicketFactory>
+deployContract(name: 'ChainTicketFactoryV2', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.ChainTicketFactoryV2>
 deployContract(name: 'ChainTicketTimelock', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.ChainTicketTimelock>
 deployContract(name: 'CheckInRegistry', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.CheckInRegistry>
+deployContract(name: 'CheckInRegistryV2', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.CheckInRegistryV2>
+deployContract(name: 'CollectibleNFT', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.CollectibleNFT>
+deployContract(name: 'FanFuelBank', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.FanFuelBank>
+deployContract(name: 'FanScoreRegistry', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.FanScoreRegistry>
+deployContract(name: 'InsurancePool', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.InsurancePool>
 deployContract(name: 'ICheckInRegistry', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.ICheckInRegistry>
+deployContract(name: 'ICollectibleNFT', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.ICollectibleNFT>
 deployContract(name: 'IERC4494', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.IERC4494>
+deployContract(name: 'IFanFuelBank', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.IFanFuelBank>
+deployContract(name: 'IFanScoreRegistry', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.IFanScoreRegistry>
+deployContract(name: 'IInsurancePool', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.IInsurancePool>
 deployContract(name: 'ITicketNFT', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.ITicketNFT>
+deployContract(name: 'ITicketNFTV2', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.ITicketNFTV2>
 deployContract(name: 'ITicketSystemState', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.ITicketSystemState>
 deployContract(name: 'Marketplace', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.Marketplace>
+deployContract(name: 'MarketplaceV2', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.MarketplaceV2>
+deployContract(name: 'MerchStore', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.MerchStore>
+deployContract(name: 'MerchTwinNFT', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.MerchTwinNFT>
+deployContract(name: 'PerkManager', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.PerkManager>
 deployContract(name: 'TicketNFT', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.TicketNFT>
+deployContract(name: 'TicketNFTV2', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.TicketNFTV2>
+deployContract(name: 'WeatherOracleAdapter', signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.WeatherOracleAdapter>
 
   deployContract(name: 'ChainTicketFactory', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.ChainTicketFactory>
+deployContract(name: 'ChainTicketFactoryV2', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.ChainTicketFactoryV2>
 deployContract(name: 'ChainTicketTimelock', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.ChainTicketTimelock>
 deployContract(name: 'CheckInRegistry', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.CheckInRegistry>
+deployContract(name: 'CheckInRegistryV2', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.CheckInRegistryV2>
+deployContract(name: 'CollectibleNFT', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.CollectibleNFT>
+deployContract(name: 'FanFuelBank', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.FanFuelBank>
+deployContract(name: 'FanScoreRegistry', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.FanScoreRegistry>
+deployContract(name: 'InsurancePool', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.InsurancePool>
 deployContract(name: 'ICheckInRegistry', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.ICheckInRegistry>
+deployContract(name: 'ICollectibleNFT', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.ICollectibleNFT>
 deployContract(name: 'IERC4494', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.IERC4494>
+deployContract(name: 'IFanFuelBank', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.IFanFuelBank>
+deployContract(name: 'IFanScoreRegistry', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.IFanScoreRegistry>
+deployContract(name: 'IInsurancePool', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.IInsurancePool>
 deployContract(name: 'ITicketNFT', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.ITicketNFT>
+deployContract(name: 'ITicketNFTV2', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.ITicketNFTV2>
 deployContract(name: 'ITicketSystemState', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.ITicketSystemState>
 deployContract(name: 'Marketplace', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.Marketplace>
+deployContract(name: 'MarketplaceV2', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.MarketplaceV2>
+deployContract(name: 'MerchStore', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.MerchStore>
+deployContract(name: 'MerchTwinNFT', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.MerchTwinNFT>
+deployContract(name: 'PerkManager', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.PerkManager>
 deployContract(name: 'TicketNFT', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.TicketNFT>
+deployContract(name: 'TicketNFTV2', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.TicketNFTV2>
+deployContract(name: 'WeatherOracleAdapter', args: any[], signerOrOptions?: ethers.Signer | DeployContractOptions): Promise<Contracts.WeatherOracleAdapter>
 
     // default types
     getContractFactory(
