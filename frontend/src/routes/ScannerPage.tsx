@@ -12,7 +12,8 @@ import {
   Tag,
 } from "../components/ui/Primitives";
 import { useI18n } from "../i18n/I18nContext";
-import { extractTokenId } from "../lib/scannerToken";
+// IMPORT MODIFIÉ : Ajout de parseScannerPayload
+import { extractTokenId, parseScannerPayload } from "../lib/scannerToken";
 import { useTicketScanner } from "../lib/scanner";
 import { parseTokenIdInput } from "../lib/timeline";
 import { useAppState } from "../state/useAppState";
@@ -47,6 +48,11 @@ export function ScannerPage() {
   const { userRoles, preparePreview, setErrorMessage, txState, uiMode } = useAppState();
 
   const [tokenInput, setTokenInput] = useState("");
+  
+  // NOUVEAUX STATES POUR LE QR DYNAMIQUE
+  const [signatureInput, setSignatureInput] = useState<string | undefined>();
+  const [deadlineInput, setDeadlineInput] = useState<string | undefined>();
+  
   const [lastDetectedValue, setLastDetectedValue] = useState("");
   const [scannerNotice, setScannerNotice] = useState(
     locale === "fr" ? "Pret pour le prochain participant." : "Ready for the next attendee.",
@@ -67,8 +73,11 @@ export function ScannerPage() {
   } = useTicketScanner({
     onDetected: (rawValue) => {
       setLastDetectedValue(rawValue);
-      const tokenId = extractTokenId(rawValue);
-      if (!tokenId) {
+      
+      // LOGIQUE MODIFIÉE : Utilisation du nouveau parseur JSON/Fallback
+      const payload = parseScannerPayload(rawValue);
+      
+      if (!payload || !payload.tokenId) {
         setScannerNotice(
           locale === "fr"
             ? "Payload QR capture, mais aucun tokenId n'a ete detecte. Verifiez manuellement."
@@ -77,15 +86,18 @@ export function ScannerPage() {
         return;
       }
 
-      setTokenInput(tokenId);
+      setTokenInput(payload.tokenId);
+      setSignatureInput(payload.signature);
+      setDeadlineInput(payload.deadline);
+
       setScannerNotice(
-        sessionCheckInsRef.current.includes(tokenId)
+        sessionCheckInsRef.current.includes(payload.tokenId)
           ? locale === "fr"
-            ? `Le ticket #${tokenId} a deja ete check-in pendant cette session.`
-            : `Ticket #${tokenId} was already checked in during this session.`
+            ? `Le ticket #${payload.tokenId} a deja ete check-in pendant cette session.`
+            : `Ticket #${payload.tokenId} was already checked in during this session.`
           : locale === "fr"
-            ? `Ticket #${tokenId} detecte. Verifiez puis confirmez le check-in.`
-            : `Ticket #${tokenId} detected. Review and confirm the check-in.`,
+            ? `Ticket #${payload.tokenId} detecte. Verifiez puis confirmez le check-in.`
+            : `Ticket #${payload.tokenId} detected. Review and confirm the check-in.`,
       );
     },
   });
@@ -181,22 +193,29 @@ export function ScannerPage() {
         : `Previewing on-chain check-in for ticket #${tokenId.toString()}.`,
     );
 
+    // LOGIQUE MODIFIÉE : Différenciation de la transaction selon s'il y a une signature ou non
     await preparePreview({
       label: "Scanner check-in",
-      description:
-        locale === "fr"
-          ? "Marquer le ticket comme utilise on-chain. Cette action est irreversible."
-          : "Mark ticket as used on-chain. This action is irreversible.",
+      description: (signatureInput && deadlineInput) 
+        ? locale === "fr" ? "Validation ultra-sécurisée via QR Dynamique (EIP-712)." : "Ultra-secure validation via Dynamic QR (EIP-712)."
+        : locale === "fr" ? "Marquer le ticket comme utilise on-chain." : "Mark ticket as used on-chain.",
       details: [
         locale === "fr" ? "Confirme l'autorisation du role scanner." : "Confirms scanner role authorization.",
-        locale === "fr"
-          ? "Verifie que le ticket existe et n'est pas deja utilise."
-          : "Verifies ticket exists and is not already used.",
-        locale === "fr"
-          ? "Ecrit une preuve de check-in immutable on-chain."
-          : "Writes immutable check-in proof on-chain.",
+        (signatureInput && deadlineInput) 
+          ? locale === "fr" ? "Vérifie la signature mathématique anti-screenshot." : "Verifies the anti-screenshot mathematical signature."
+          : locale === "fr" ? "Mode Fallback manuel." : "Manual Fallback mode.",
       ],
       run: async (client) => {
+        // Exécution de la fonction CheckInPermit si données QR dynamique présentes
+        if (signatureInput && deadlineInput) {
+           if (!client.checkInWithPermit) {
+              throw new Error(locale === "fr" ? "Methode EIP-712 non supportée par le client" : "EIP-712 method not supported by the client");
+           }
+           // On utilise la nouvelle fonction sécurisée
+           return client.checkInWithPermit(tokenId, deadlineInput, signatureInput);
+        }
+        
+        // Exécution du check-in manuel (fallback)
         if (!client.markTicketUsed) {
           throw new Error(
             locale === "fr"
@@ -308,6 +327,8 @@ export function ScannerPage() {
               className="ghost"
               onClick={() => {
                 setTokenInput("");
+                setSignatureInput(undefined); // LOGIQUE AJOUTÉE : Purger l'ancienne signature
+                setDeadlineInput(undefined);
                 setLastDetectedValue("");
                 setScannerNotice(
                   locale === "fr"
@@ -352,7 +373,12 @@ export function ScannerPage() {
               {t("tokenId")}
               <input
                 value={tokenInput}
-                onChange={(event) => setTokenInput(event.target.value)}
+                onChange={(event) => {
+                  setTokenInput(event.target.value);
+                  // LOGIQUE AJOUTÉE : Si on modifie à la main, l'ancienne signature est invalide !
+                  setSignatureInput(undefined);
+                  setDeadlineInput(undefined);
+                }}
                 placeholder="e.g. 123"
                 inputMode="numeric"
               />
@@ -417,8 +443,8 @@ export function ScannerPage() {
           </li>
           <li>
             {locale === "fr"
-              ? "Le check-in ecrit un statut d'usage immutable sur la blockchain."
-              : "Check-in writes immutable usage status to the blockchain."}
+              ? "Le check-in avec EIP-712 écrit un statut d'usage immutable et invalide le QR dynamiquement."
+              : "EIP-712 check-in writes immutable usage status and dynamically invalidates the QR."}
           </li>
         </ul>
       </DetailAccordion>
