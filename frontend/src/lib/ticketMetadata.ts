@@ -194,7 +194,18 @@ export function buildTicketQrValue(args: {
   tokenId: bigint;
   ticketEventId?: string;
   collectible?: boolean;
+  signature?: string;
+  deadline?: number;
 }): string {
+  if (args.signature && args.deadline) {
+    return JSON.stringify({
+      tokenId: args.tokenId.toString(),
+      eventId: args.ticketEventId,
+      deadline: args.deadline,
+      signature: args.signature
+    });
+  }
+
   const origin =
     typeof window !== "undefined" ? window.location.origin : "http://localhost";
   const url = new URL(`/app/tickets/${args.tokenId.toString()}`, origin);
