@@ -185,6 +185,8 @@ export function ExplorePage() {
   }, [featuredEvent, selectedEventId, setSelectedEventId]);
 
   const benefitBadges = getEventBenefitBadges(locale);
+  const surfacedBenefitBadges = benefitBadges.slice(0, 2);
+  const hiddenBenefitCount = Math.max(benefitBadges.length - surfacedBenefitBadges.length, 0);
 
   return (
     <div className="route-stack explore-route" data-testid="explore-page">
@@ -200,11 +202,12 @@ export function ExplorePage() {
               {featuredEvent.version === "v2" ? (
                 <Tag tone="success">{copy.fullStackLive}</Tag>
               ) : null}
-              {benefitBadges.map((badge) => (
+              {surfacedBenefitBadges.map((badge) => (
                 <Tag key={badge} tone="info">
                   {badge}
                 </Tag>
               ))}
+              {hiddenBenefitCount > 0 ? <Tag tone="default">+{hiddenBenefitCount}</Tag> : null}
               {featuredEvent.version === "v2" && featuredEvent.fanPassAllocationBps ? (
                 <Tag tone="default">{copy.fanPassLive}</Tag>
               ) : null}
@@ -327,11 +330,12 @@ export function ExplorePage() {
                 {event.version === "v2" ? (
                   <Tag tone="success">{copy.fullStackLive}</Tag>
                 ) : null}
-                {benefitBadges.map((badge) => (
+                {surfacedBenefitBadges.map((badge) => (
                   <Tag key={`${event.ticketEventId}-${badge}`} tone="default">
                     {badge}
                   </Tag>
                 ))}
+                {hiddenBenefitCount > 0 ? <Tag tone="default">+{hiddenBenefitCount}</Tag> : null}
                 {event.version === "v2" && event.fanPassAllocationBps ? (
                   <Tag tone="info">{copy.fanPassLive}</Tag>
                 ) : null}

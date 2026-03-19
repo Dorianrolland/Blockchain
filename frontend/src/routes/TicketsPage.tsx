@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import {
   Badge,
   Card,
+  DetailAccordion,
   EmptyState,
   InfoList,
   PageHeader,
@@ -281,7 +282,7 @@ export function TicketsPage() {
             vaultView: "Vault",
             fanProfileTitle: "Fan profile",
             fanProfileSubtitle:
-              "Le stack upgrade transforme l'historique d'achat en reputation, FanFuel et collectibles visibles dans le vault.",
+              "La stack fan transforme l'historique d'achat en reputation, FanFuel et collectibles visibles dans le vault.",
           collectiblesTitle: "Collectibles",
           collectiblesSubtitle:
             "Les souvenirs post-check-in restent visibles a cote des billets encore actifs, pour que le vault garde une narration complete.",
@@ -372,7 +373,7 @@ export function TicketsPage() {
             vaultView: "Vault",
             fanProfileTitle: "Fan profile",
             fanProfileSubtitle:
-              "The upgraded stack turns purchase history into visible reputation, FanFuel, and collectible progress inside the vault.",
+              "The fan stack turns purchase history into visible reputation, FanFuel, and collectible progress inside the vault.",
           collectiblesTitle: "Collectibles",
           collectiblesSubtitle:
             "Post-check-in souvenirs stay visible next to live passes so the vault keeps the full fan story.",
@@ -491,6 +492,37 @@ export function TicketsPage() {
   const hasMerchHistory = (merchRedemptionsQuery.data?.length ?? 0) > 0;
   const hasInventory = sortedTickets.length > 0 || hasCollectibles || hasPerks;
   const knownFuelBalance = fanProfileQuery.data?.fuelBalance ?? null;
+  const ticketPerkLabels = getTicketPerks(locale);
+  const ticketPerkHighlights = ticketPerkLabels.slice(0, 2);
+  const hiddenTicketPerkCount = Math.max(ticketPerkLabels.length - ticketPerkHighlights.length, 0);
+  const vaultStatEntries = [
+    { label: copy.owned, value: ticketCounters.owned.toString(), surface: "accent" as const },
+    { label: copy.listed, value: ticketCounters.listed.toString(), surface: "glass" as const },
+    {
+      label: "Collectible",
+      value: (hasCollectibles ? collectiblesQuery.data!.length : ticketCounters.collectible).toString(),
+      surface: "glass" as const,
+    },
+    ...(fanProfileQuery.data
+      ? [
+          {
+            label: copy.fanTier,
+            value: fanProfileQuery.data.tierLabel.toUpperCase(),
+            surface: "glass" as const,
+          },
+          {
+            label: copy.fanScore,
+            value: fanProfileQuery.data.reputationScore.toString(),
+            surface: "glass" as const,
+          },
+          {
+            label: copy.fanFuel,
+            value: fanProfileQuery.data.fuelBalance.toString(),
+            surface: "glass" as const,
+          },
+        ]
+      : []),
+  ];
 
   useEffect(() => {
     if (
@@ -582,7 +614,11 @@ export function TicketsPage() {
     <div className="route-stack tickets-route" data-testid="tickets-page">
       <PageHeader
         title={copy.title}
-        subtitle={copy.subtitle}
+        subtitle={
+          locale === "fr"
+            ? "Un vault plus calme: les passes au centre, puis les perks, collectibles et drops quand vous voulez les ouvrir."
+            : "A calmer vault: passes first, then perks, collectibles, and drops when you choose to open them."
+        }
         workspace="tickets"
         context={
           <div className="inline-actions">
@@ -590,11 +626,7 @@ export function TicketsPage() {
               {walletAddress ? copy.walletConnected : copy.walletRequired}
             </Badge>
             <Tag tone="success">{`${copy.owned} ${ticketCounters.owned}`}</Tag>
-            <Tag tone="warning">{`${copy.listed} ${ticketCounters.listed}`}</Tag>
-            <Tag tone="info">{`${copy.used} ${ticketCounters.used}`}</Tag>
-            <Tag tone={systemState?.collectibleMode ? "info" : "default"}>
-              {systemState?.collectibleMode ? copy.collectibleLive : copy.collectibleReady}
-            </Tag>
+            <Tag tone="info">{`${copy.collectibles} ${hasCollectibles ? collectiblesQuery.data!.length : ticketCounters.collectible}`}</Tag>
           </div>
         }
         primaryAction={
@@ -654,70 +686,48 @@ export function TicketsPage() {
             <p className="eyebrow">{copy.vaultEyebrow}</p>
             <h2>{selectedEventName || contractConfig.eventName || "ChainTicket passes"}</h2>
             <p>{copy.vaultSummary}</p>
+            {fanProfileQuery.data ? (
+              <div className="inline-actions">
+                <Tag tone="info">{selectedEvent?.artistId ?? selectedEventName ?? "Artist"}</Tag>
+                <Tag tone={systemState?.collectibleMode ? "info" : "default"}>
+                  {systemState?.collectibleMode ? copy.collectibleLive : copy.collectibleReady}
+                </Tag>
+              </div>
+            ) : null}
           </div>
           <div className="vault-stat-grid">
-            <Card className="vault-stat-card" surface="accent">
-              <span>{copy.owned}</span>
-              <strong>{ticketCounters.owned}</strong>
-            </Card>
-            <Card className="vault-stat-card" surface="glass">
-              <span>{copy.listed}</span>
-              <strong>{ticketCounters.listed}</strong>
-            </Card>
-            <Card className="vault-stat-card" surface="glass">
-              <span>Collectible</span>
-              <strong>{hasCollectibles ? collectiblesQuery.data!.length : ticketCounters.collectible}</strong>
-            </Card>
+            {vaultStatEntries.map((entry, index) => (
+              <Card
+                key={`${entry.label}-${index}`}
+                className="vault-stat-card"
+                surface={entry.surface}
+              >
+                <span>{entry.label}</span>
+                <strong>{entry.value}</strong>
+              </Card>
+            ))}
           </div>
-        </Panel>
-      ) : null}
-
-      {walletAddress && fanProfileQuery.data ? (
-        <Panel className="vault-summary-panel" surface="glass">
-          <SectionHeader
-            title={copy.fanProfileTitle}
-            subtitle={copy.fanProfileSubtitle}
-            actions={
-              <Tag tone="info">
-                {selectedEvent?.artistId ?? selectedEventName ?? "Artist"}
-              </Tag>
-            }
-          />
-          <div className="vault-stat-grid">
-            <Card className="vault-stat-card" surface="accent">
-              <span>{copy.fanTier}</span>
-              <strong>{fanProfileQuery.data.tierLabel.toUpperCase()}</strong>
-            </Card>
-            <Card className="vault-stat-card" surface="glass">
-              <span>{copy.fanScore}</span>
-              <strong>{fanProfileQuery.data.reputationScore.toString()}</strong>
-            </Card>
-            <Card className="vault-stat-card" surface="glass">
-              <span>{copy.fanFuel}</span>
-              <strong>{fanProfileQuery.data.fuelBalance.toString()}</strong>
-            </Card>
-          </div>
-          <InfoList
-            entries={[
-              { label: copy.attendance, value: fanProfileQuery.data.artistAttendanceCount.toString() },
-              { label: copy.collectibles, value: fanProfileQuery.data.collectibleCount.toString() },
-              { label: copy.passesLabel, value: fanProfileQuery.data.currentTicketCount },
-              { label: copy.listed, value: fanProfileQuery.data.listedTicketCount },
-            ]}
-          />
+          {fanProfileQuery.data ? (
+            <InfoList
+              entries={[
+                { label: copy.attendance, value: fanProfileQuery.data.artistAttendanceCount.toString() },
+                { label: copy.collectibles, value: fanProfileQuery.data.collectibleCount.toString() },
+                { label: copy.passesLabel, value: fanProfileQuery.data.currentTicketCount },
+                { label: copy.listed, value: fanProfileQuery.data.listedTicketCount },
+              ]}
+            />
+          ) : null}
         </Panel>
       ) : null}
 
       {walletAddress &&
       (selectedEvent?.version ?? "v1") === "v2" &&
       selectedEvent?.perkManager ? (
-        <>
-          <SectionHeader
-            title={copy.perksTitle}
-            subtitle={copy.perksSubtitle}
-            actions={<Tag tone="info">{hasPerks ? fanPerksQuery.data!.length.toString() : "0"}</Tag>}
-          />
-
+        <DetailAccordion
+          title={copy.perksTitle}
+          subtitle={copy.perksSubtitle}
+          className="vault-detail-accordion"
+        >
           {hasPerks ? (
             <section className="ticket-pass-grid">
               {fanPerksQuery.data!.map((perk) => {
@@ -802,23 +812,19 @@ export function TicketsPage() {
               <p>{copy.perksEmpty}</p>
             </Panel>
           ) : null}
-        </>
+        </DetailAccordion>
       ) : null}
 
       {walletAddress &&
       (selectedEvent?.version ?? "v1") === "v2" &&
       selectedEvent?.merchStore ? (
-        <>
-          <SectionHeader
-            title={copy.merchTitle}
-            subtitle={copy.merchSubtitle}
-            actions={
-              <Tag tone="info">
-                {copy.merchBalanceHint}: {knownFuelBalance !== null ? knownFuelBalance.toString() : "-"}
-              </Tag>
-            }
-          />
-
+        <DetailAccordion
+          title={copy.merchTitle}
+          subtitle={`${copy.merchSubtitle} ${copy.merchBalanceHint}: ${
+            knownFuelBalance !== null ? knownFuelBalance.toString() : "-"
+          }`}
+          className="vault-detail-accordion"
+        >
           {hasMerchCatalog ? (
             <section className="ticket-pass-grid">
               {merchCatalogQuery.data!.map((sku) => {
@@ -947,7 +953,7 @@ export function TicketsPage() {
               <p>{copy.merchHistoryEmpty}</p>
             </Panel>
           ) : null}
-        </>
+        </DetailAccordion>
       ) : null}
 
       {walletAddress && sortedTickets.length > 0 ? (
@@ -1047,16 +1053,17 @@ export function TicketsPage() {
                   <div className="ticket-pass-attribute-row">
                     <Tag tone="info">{copy.qrReady}</Tag>
                     {collectibleReady ? <Tag tone="success">{copy.collectiblePreview}</Tag> : null}
-                    {getTicketPerks(locale).map((perk) => (
+                    {ticketPerkHighlights.map((perk) => (
                       <Tag key={`${ticket.tokenId.toString()}-${perk}`} tone="default">
                         {perk}
                       </Tag>
                     ))}
+                    {hiddenTicketPerkCount > 0 ? <Tag tone="default">+{hiddenTicketPerkCount}</Tag> : null}
                   </div>
 
                   {(activeMetadata?.attributes.length ?? 0) > 0 ? (
                     <div className="ticket-pass-attribute-grid">
-                      {activeMetadata!.attributes.slice(0, 4).map((attribute) => (
+                      {activeMetadata!.attributes.slice(0, 3).map((attribute) => (
                         <div
                           key={`${ticket.tokenId.toString()}-${attribute.traitType}`}
                           className="ticket-attribute-chip"
@@ -1136,12 +1143,11 @@ export function TicketsPage() {
       ) : null}
 
       {walletAddress && hasCollectibles ? (
-        <>
-          <SectionHeader
-            title={copy.collectiblesTitle}
-            subtitle={copy.collectiblesSubtitle}
-            actions={<Tag tone="info">{collectiblesQuery.data!.length.toString()}</Tag>}
-          />
+        <DetailAccordion
+          title={copy.collectiblesTitle}
+          subtitle={`${copy.collectiblesSubtitle} ${collectiblesQuery.data!.length.toString()}`}
+          className="vault-detail-accordion"
+        >
           <section className="ticket-pass-grid">
             {collectiblesQuery.data!.map((collectible) => {
               const preview = collectiblePreviews.get(`collectible-${collectible.collectibleId.toString()}`);
@@ -1229,7 +1235,7 @@ export function TicketsPage() {
               );
             })}
           </section>
-        </>
+        </DetailAccordion>
       ) : walletAddress &&
         (selectedEvent?.version ?? "v1") === "v2" &&
         !collectiblesQuery.isLoading &&

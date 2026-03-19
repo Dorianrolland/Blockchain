@@ -35,8 +35,6 @@ const runtimeConfig: RuntimeConfig = {
   governanceTimelockAddress: null,
   governanceMinDelaySeconds: 0,
   governancePortalUrl: null,
-  embeddedWalletEnabled: false,
-  embeddedWalletLabel: "Embedded Wallet Beta",
 };
 
 const providerInfo: WalletProviderInfo = {

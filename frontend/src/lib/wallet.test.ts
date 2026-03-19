@@ -24,6 +24,7 @@ describe("wallet utilities", () => {
 
   it("discovers EIP-6963 providers", async () => {
     const eipProvider: EthereumProvider = {
+      isMetaMask: true,
       request: vi.fn(),
       on: vi.fn(),
       removeListener: vi.fn(),
@@ -35,7 +36,7 @@ describe("wallet utilities", () => {
           detail: {
             info: {
               uuid: "wallet-eip-1",
-              name: "Test Wallet",
+              name: "MetaMask",
               icon: "",
               rdns: "com.test.wallet",
             },

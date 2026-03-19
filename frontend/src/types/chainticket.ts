@@ -103,8 +103,6 @@ export interface RuntimeConfig {
   governanceTimelockAddress: string | null;
   governanceMinDelaySeconds: number;
   governancePortalUrl: string | null;
-  embeddedWalletEnabled: boolean;
-  embeddedWalletLabel: string;
 }
 
 export type WorkspaceKey = "explore" | "marketplace" | "tickets" | "organizer";
@@ -155,53 +153,12 @@ export interface RouteGuideMeta {
 export interface WalletProviderInfo {
   id: string;
   name: string;
-  kind: "injected" | "embedded";
+  kind: "injected";
   icon?: string;
   rdns?: string;
   isMetaMask: boolean;
   provider?: EthereumProvider;
   description?: string;
-  sponsoredActions?: string[];
-}
-
-export interface EmbeddedWalletCodeRequest {
-  enabled: boolean;
-  email: string;
-  walletAddress: string;
-  expiresAt: number;
-  codeSent: boolean;
-  devCode: string | null;
-  provider: {
-    id: string;
-    label: string;
-    sponsoredActions: string[];
-  };
-}
-
-export interface EmbeddedWalletSession {
-  email: string;
-  walletAddress: string;
-  expiresAt: number;
-  sessionToken: string;
-  providerId: string;
-  providerLabel: string;
-  sponsoredActions: string[];
-}
-
-export type SponsoredWalletActionRequest =
-  | { eventId?: string; action: "mint_standard"; insured: boolean }
-  | { eventId?: string; action: "mint_fanpass"; insured: boolean }
-  | { eventId?: string; action: "claim_insurance"; tokenId: bigint }
-  | { eventId?: string; action: "redeem_perk"; perkId: string }
-  | { eventId?: string; action: "redeem_merch"; skuId: string };
-
-export interface SponsoredWalletActionResponse {
-  ok: boolean;
-  ticketEventId: string;
-  action: SponsoredWalletActionRequest["action"];
-  txHash: string;
-  walletAddress: string;
-  sponsoredValue: bigint;
 }
 
 export interface TicketView {

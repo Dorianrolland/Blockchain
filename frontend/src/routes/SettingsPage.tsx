@@ -25,17 +25,6 @@ export function SettingsPage() {
     uiMode,
     setUiMode,
     setOnboardingSeen,
-    embeddedWalletEnabled,
-    embeddedWalletEmail,
-    setEmbeddedWalletEmail,
-    embeddedWalletCode,
-    setEmbeddedWalletCode,
-    embeddedWalletSession,
-    embeddedWalletDevCode,
-    isEmbeddedWalletBusy,
-    requestEmbeddedWalletCode,
-    verifyEmbeddedWalletCode,
-    connectedProvider,
   } = useAppState();
 
   const roleBadges: string[] = [];
@@ -151,87 +140,6 @@ export function SettingsPage() {
                 { label: t("fallbackMode"), value: bffMode },
               ]}
             />
-          </Card>
-
-          <Card surface="glass">
-            <h3>{locale === "fr" ? "Wallet embarque" : "Embedded wallet"}</h3>
-            <p>
-              {locale === "fr"
-                ? "Ce rail email + gas sponsorise couvre le mint, l'assurance, les perks et le merch pour les fans non-crypto."
-                : "This email + sponsored gas rail covers mint, insurance, perks, and merch for non-crypto fans."}
-            </p>
-            <InfoList
-              entries={[
-                {
-                  label: locale === "fr" ? "Etat" : "Status",
-                  value: embeddedWalletEnabled
-                    ? embeddedWalletSession
-                      ? locale === "fr"
-                        ? "Connecte"
-                        : "Connected"
-                      : locale === "fr"
-                        ? "Pret"
-                        : "Ready"
-                    : locale === "fr"
-                      ? "Desactive"
-                      : "Disabled",
-                },
-                {
-                  label: locale === "fr" ? "Provider actif" : "Active provider",
-                  value:
-                    connectedProvider?.kind === "embedded"
-                      ? connectedProvider.name
-                      : locale === "fr"
-                        ? "MetaMask / injecte"
-                        : "MetaMask / injected",
-                },
-                {
-                  label: locale === "fr" ? "Wallet fan" : "Fan wallet",
-                  value: embeddedWalletSession?.walletAddress ?? (locale === "fr" ? "Pas encore connecte" : "Not connected yet"),
-                },
-              ]}
-            />
-            {embeddedWalletEnabled ? (
-              <>
-                <input
-                  type="email"
-                  value={embeddedWalletEmail}
-                  onChange={(event) => setEmbeddedWalletEmail(event.target.value)}
-                  placeholder="fan@chainticket.xyz"
-                  aria-label={locale === "fr" ? "Email embedded wallet" : "Embedded wallet email"}
-                />
-                <input
-                  type="text"
-                  value={embeddedWalletCode}
-                  onChange={(event) => setEmbeddedWalletCode(event.target.value)}
-                  placeholder="123456"
-                  aria-label={locale === "fr" ? "Code embedded wallet" : "Embedded wallet code"}
-                />
-                <ButtonGroup>
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={() => void requestEmbeddedWalletCode()}
-                    disabled={isEmbeddedWalletBusy}
-                  >
-                    {locale === "fr" ? "Envoyer le code" : "Send code"}
-                  </button>
-                  <button
-                    type="button"
-                    className="primary"
-                    onClick={() => void verifyEmbeddedWalletCode()}
-                    disabled={isEmbeddedWalletBusy}
-                  >
-                    {locale === "fr" ? "Verifier" : "Verify"}
-                  </button>
-                </ButtonGroup>
-                {embeddedWalletDevCode ? (
-                  <Tag tone="warning">
-                    {locale === "fr" ? "Code dev" : "Dev code"}: {embeddedWalletDevCode}
-                  </Tag>
-                ) : null}
-              </>
-            ) : null}
           </Card>
         </section>
       </Panel>

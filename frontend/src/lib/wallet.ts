@@ -136,7 +136,7 @@ export async function discoverWalletProviders(timeoutMs = 220): Promise<WalletPr
 
   window.removeEventListener("eip6963:announceProvider", onAnnounceProvider);
 
-  return sortWallets(Array.from(providers.values()));
+  return sortWallets(Array.from(providers.values())).filter((provider) => provider.isMetaMask);
 }
 
 export async function connectBrowserWallet(
@@ -146,13 +146,13 @@ export async function connectBrowserWallet(
   const provider = providerInfo?.provider ?? window.ethereum;
 
   if (!provider) {
-    throw new Error("No EVM wallet detected. Install MetaMask or another injected wallet.");
-  }
-  if (providerInfo?.kind === "embedded") {
-    throw new Error("Embedded wallet connections are handled by the sponsored wallet flow.");
+    throw new Error("MetaMask was not detected. Install MetaMask to continue.");
   }
 
   const resolvedProviderInfo = providerInfo ?? buildLegacyProviderInfo(provider);
+  if (!resolvedProviderInfo.isMetaMask) {
+    throw new Error("MetaMask is the only supported wallet on this branch.");
+  }
   const browserProvider = new BrowserProvider(provider);
 
   await switchToTargetNetwork(browserProvider, config);

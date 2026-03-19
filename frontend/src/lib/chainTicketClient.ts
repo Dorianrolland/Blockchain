@@ -1,6 +1,3 @@
-import { JsonRpcProvider, VoidSigner } from "ethers";
-
-import type { BffClient } from "./bffClient";
 import type {
   ChainTicketClient,
   ChainTicketEvent,
@@ -35,16 +32,6 @@ import { buildTicketTimeline } from "./chainTicketClient/ticketTimeline";
 
 export { createListingHealth };
 export type { ChainTicketClientOptions };
-
-const SPONSORED_WALLET_LIMITATION =
-  "This embedded wallet beta currently sponsors checkout, insurance claims, perks, and merch. Switch to a browser wallet for resale or organizer actions.";
-
-function toSponsoredTxResponse<T extends { txHash: string }>(result: T) {
-  return {
-    hash: result.txHash,
-    wait: async () => result,
-  };
-}
 
 export function createChainTicketClientFromBindings(
   config: ContractConfig,
@@ -393,95 +380,4 @@ export function createChainTicketClient(
 ): ChainTicketClient {
   const bindings = createEthersBindings(config, options);
   return createChainTicketClientFromBindings(config, bindings);
-}
-
-export function createSponsoredChainTicketClient(
-  config: ContractConfig,
-  options: {
-    address: string;
-    sessionToken: string;
-    bffClient: BffClient;
-    providerInfo: WalletProviderInfo;
-  },
-): ChainTicketClient {
-  const readProvider = new JsonRpcProvider(config.rpcUrl, config.chainId);
-  const baseClient = createChainTicketClient(config, {
-    signer: new VoidSigner(options.address, readProvider),
-    readProvider,
-  });
-
-  const unsupported = async () => {
-    throw new Error(SPONSORED_WALLET_LIMITATION);
-  };
-
-  return {
-    ...baseClient,
-    discoverWallets: async () => [options.providerInfo],
-    mintPrimary: async () => {
-      if (config.version !== "v2") {
-        throw new Error("Sponsored wallet mint is only enabled on upgraded deployments.");
-      }
-
-      const result = await options.bffClient.runSponsoredWalletAction(options.sessionToken, {
-        eventId: config.eventId,
-        action: "mint_standard",
-        insured: false,
-      });
-
-      return toSponsoredTxResponse(result);
-    },
-    mintStandardTicket: async (insured: boolean) => {
-      const result = await options.bffClient.runSponsoredWalletAction(options.sessionToken, {
-        eventId: config.eventId,
-        action: "mint_standard",
-        insured,
-      });
-      return toSponsoredTxResponse(result);
-    },
-    mintFanPassTicket: async (_attestation, insured: boolean) => {
-      const result = await options.bffClient.runSponsoredWalletAction(options.sessionToken, {
-        eventId: config.eventId,
-        action: "mint_fanpass",
-        insured,
-      });
-      return toSponsoredTxResponse(result);
-    },
-    claimInsurance: async (tokenId: bigint) => {
-      const result = await options.bffClient.runSponsoredWalletAction(options.sessionToken, {
-        eventId: config.eventId,
-        action: "claim_insurance",
-        tokenId,
-      });
-      return toSponsoredTxResponse(result);
-    },
-    redeemPerk: async (perkId: string) => {
-      const result = await options.bffClient.runSponsoredWalletAction(options.sessionToken, {
-        eventId: config.eventId,
-        action: "redeem_perk",
-        perkId,
-      });
-      return toSponsoredTxResponse(result);
-    },
-    redeemMerch: async (skuId: string) => {
-      const result = await options.bffClient.runSponsoredWalletAction(options.sessionToken, {
-        eventId: config.eventId,
-        action: "redeem_merch",
-        skuId,
-      });
-      return toSponsoredTxResponse(result);
-    },
-    approveTicket: unsupported,
-    listTicket: unsupported,
-    listTicketWithPermit: unsupported,
-    cancelListing: unsupported,
-    buyTicket: unsupported,
-    organizerBuyback: unsupported,
-    markTicketUsed: unsupported,
-    checkInToCollectible: unsupported,
-    grantScannerRole: unsupported,
-    revokeScannerRole: unsupported,
-    pauseSystem: unsupported,
-    unpauseSystem: unsupported,
-    setCollectibleMode: unsupported,
-  };
 }

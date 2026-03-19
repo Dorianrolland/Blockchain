@@ -6,11 +6,13 @@ export function TicketMedia({
   media,
   fallbackTitle,
   fallbackSubtitle,
+  fallbackEyebrow = "ChainTicket pass",
   className,
 }: {
   media: TicketMediaAsset;
   fallbackTitle: string;
   fallbackSubtitle?: string;
+  fallbackEyebrow?: string;
   className?: string;
 }) {
   const [assetFailed, setAssetFailed] = useState(false);
@@ -21,7 +23,7 @@ export function TicketMedia({
     return (
       <div className={className ? `ticket-media ${className}` : "ticket-media"}>
         <div className="ticket-media-fallback">
-          <p>ChainTicket collectible</p>
+          <p>{fallbackEyebrow}</p>
           <strong>{fallbackTitle}</strong>
           {fallbackSubtitle ? <span>{fallbackSubtitle}</span> : null}
         </div>

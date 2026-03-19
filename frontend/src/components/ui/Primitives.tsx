@@ -309,7 +309,9 @@ export function DetailAccordion({
   return (
     <details className={joinClassName("ui-detail-accordion", className)} open={openByDefault}>
       <summary>
-        <span>{title}</span>
+        <span role="heading" aria-level={2}>
+          {title}
+        </span>
         {subtitle ? <small>{subtitle}</small> : null}
       </summary>
       <div className="ui-detail-content">{children}</div>

@@ -214,34 +214,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS demo_event_catalog_status_event_idx
 
 CREATE UNIQUE INDEX IF NOT EXISTS demo_event_catalog_status_source_idx
   ON demo_event_catalog (lineup_status, source_event_id);
-
-CREATE TABLE IF NOT EXISTS embedded_wallet_login_challenges (
-  email TEXT PRIMARY KEY,
-  code_hash TEXT NOT NULL,
-  wallet_address TEXT NOT NULL,
-  expires_at BIGINT NOT NULL,
-  consumed_at BIGINT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS embedded_wallet_login_challenges_expires_idx
-  ON embedded_wallet_login_challenges (expires_at);
-
-CREATE TABLE IF NOT EXISTS embedded_wallet_sessions (
-  session_id TEXT PRIMARY KEY,
-  email TEXT NOT NULL,
-  wallet_address TEXT NOT NULL,
-  issued_at BIGINT NOT NULL,
-  expires_at BIGINT NOT NULL,
-  revoked_at BIGINT,
-  last_used_at BIGINT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS embedded_wallet_sessions_wallet_idx
-  ON embedded_wallet_sessions (wallet_address, expires_at DESC);
 `;
 
 const eventDeploymentMigrationSql = `

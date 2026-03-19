@@ -11,8 +11,6 @@ import {
   FAN_FUEL_BANK_ABI,
   FAN_SCORE_REGISTRY_ABI,
   INSURANCE_POOL_ABI,
-  MERCH_STORE_ABI,
-  PERK_MANAGER_ABI,
   TICKET_NFT_ABI,
 } from "./abi.js";
 import { config } from "./config.js";
@@ -30,22 +28,7 @@ import {
 } from "./chainViews.js";
 import { logger, requestLogger } from "./logger.js";
 import {
-  EMBEDDED_WALLET_PROVIDER_ID,
-  EMBEDDED_WALLET_PROVIDER_LABEL,
-  SPONSORED_ACTIONS,
-  codesMatch,
-  createSessionClaims,
-  deriveEmbeddedWallet,
-  generateVerificationCode,
-  hashVerificationCode,
-  normalizeEmail,
-  signSessionToken,
-  verifySessionToken,
-} from "./embeddedWallets.js";
-import {
   getActiveListings,
-  getEmbeddedWalletChallenge,
-  getEmbeddedWalletSession,
   getDemoCatalogEntries,
   getEventDeployments as getStoredEventDeployments,
   getFanTicketProfileStats,
@@ -54,18 +37,11 @@ import {
   getOperationalSummary,
   getTicketTimeline,
   getTicketsByOwner,
-  touchEmbeddedWalletSession,
-  consumeEmbeddedWalletChallenge,
-  createEmbeddedWalletSession,
-  upsertEmbeddedWalletChallenge,
 } from "./repository.js";
 import {
   addressParamSchema,
-  embeddedWalletRequestSchema,
-  embeddedWalletVerifySchema,
   eventQuerySchema,
   listingsQuerySchema,
-  sponsoredWalletActionSchema,
   tokenIdParamSchema,
 } from "./validators.js";
 import type { ChainIndexer, IndexerStatus } from "./indexer.js";
@@ -410,21 +386,17 @@ export function createApp(indexer: ChainIndexer) {
     ticketEventId: string;
   };
   const systemStateCache = new Map<string, { value: SystemStatePayload; cachedAt: number }>();
-  const sponsorRelayWallet = config.sponsorRelayPrivateKey
-    ? new Wallet(config.sponsorRelayPrivateKey, catalogProvider)
-    : null;
-  const embeddedWalletEnabled = Boolean(
-    config.embeddedWalletMasterKey &&
-      config.embeddedWalletSessionSecret &&
-      sponsorRelayWallet,
-  );
 
-  const getEmbeddedWallet = (email: string) => {
-    if (!config.embeddedWalletMasterKey) {
-      throw new Error("Embedded wallet service is not configured.");
-    }
-
-    return deriveEmbeddedWallet(config.embeddedWalletMasterKey, email, catalogProvider);
+  const setDemoAssetResponseHeaders = (
+    response: Response,
+    contentType: "application/json; charset=utf-8" | "image/svg+xml; charset=utf-8",
+  ) => {
+    response.setHeader("Content-Type", contentType);
+    response.setHeader("Cache-Control", "public, max-age=60");
+    // Demo ticket media is rendered from the frontend origin (`localhost:5173` in dev).
+    // Helmet defaults to `Cross-Origin-Resource-Policy: same-origin`, which makes
+    // cross-origin `<img>` / poster requests fail with `ERR_BLOCKED_BY_RESPONSE.NotSameOrigin`.
+    response.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
   };
 
   const issueFanPassAttestation = async (
@@ -471,204 +443,6 @@ export function createApp(indexer: ChainIndexer) {
       signer: fanPassAttestationWallet.address,
       deadline,
       signature,
-    };
-  };
-
-  const extractBearerToken = (request: Request): string | null => {
-    const headerValue = request.header("authorization");
-    if (!headerValue) {
-      return null;
-    }
-
-    const [scheme, token] = headerValue.split(" ");
-    if (!scheme || !token || scheme.toLowerCase() !== "bearer") {
-      return null;
-    }
-
-    return token.trim();
-  };
-
-  const resolveEmbeddedSession = async (request: Request): Promise<{
-    sessionId: string;
-    email: string;
-    walletAddress: string;
-    expiresAt: number;
-  }> => {
-    if (!embeddedWalletEnabled || !config.embeddedWalletSessionSecret) {
-      throw new Error("Embedded wallet beta is not enabled.");
-    }
-
-    const token = extractBearerToken(request);
-    if (!token) {
-      throw new Error("Embedded wallet session is missing.");
-    }
-
-    const claims = verifySessionToken(token, config.embeddedWalletSessionSecret);
-    if (!claims) {
-      throw new Error("Embedded wallet session is invalid.");
-    }
-
-    const storedSession = await getEmbeddedWalletSession(claims.sessionId);
-    if (!storedSession) {
-      throw new Error("Embedded wallet session was not found.");
-    }
-
-    const now = Date.now();
-    if (storedSession.revokedAt !== null || storedSession.expiresAt <= now || claims.expiresAt <= now) {
-      throw new Error("Embedded wallet session has expired.");
-    }
-    if (storedSession.email !== claims.email) {
-      throw new Error("Embedded wallet session email does not match.");
-    }
-    if (storedSession.walletAddress.toLowerCase() !== claims.walletAddress.toLowerCase()) {
-      throw new Error("Embedded wallet session address does not match.");
-    }
-
-    await touchEmbeddedWalletSession(storedSession.sessionId, now);
-
-    return {
-      sessionId: storedSession.sessionId,
-      email: storedSession.email,
-      walletAddress: storedSession.walletAddress,
-      expiresAt: storedSession.expiresAt,
-    };
-  };
-
-  const ensureSponsoredTopup = async (walletAddress: string, minimumBalance: bigint): Promise<void> => {
-    if (!sponsorRelayWallet) {
-      throw new Error("Sponsor relay is not configured.");
-    }
-
-    const currentBalance = await catalogProvider.getBalance(walletAddress);
-    if (currentBalance >= minimumBalance) {
-      return;
-    }
-
-    const topupAmount = minimumBalance - currentBalance + config.sponsoredTopupWei;
-    const topupTx = await sponsorRelayWallet.sendTransaction({
-      to: walletAddress,
-      value: topupAmount,
-    });
-    await topupTx.wait();
-  };
-
-  const executeSponsoredAction = async (params: {
-    event: TicketEventDeployment;
-    action:
-      | { action: "mint_standard"; insured: boolean }
-      | { action: "mint_fanpass"; insured: boolean }
-      | { action: "claim_insurance"; tokenId: string }
-      | { action: "redeem_perk"; perkId: string }
-      | { action: "redeem_merch"; skuId: string };
-    session: {
-      email: string;
-      walletAddress: string;
-    };
-  }) => {
-    const embeddedWallet = getEmbeddedWallet(params.session.email);
-    if (embeddedWallet.address.toLowerCase() !== params.session.walletAddress.toLowerCase()) {
-      throw new Error("Embedded wallet session is out of sync with the derived wallet.");
-    }
-
-    let txHash = "";
-    let valueToCover = 0n;
-
-    switch (params.action.action) {
-      case "mint_standard": {
-        const ticketContract = new Contract(params.event.ticketNftAddress, TICKET_NFT_ABI, catalogProvider);
-        const [primaryPrice, insurancePremium] = await Promise.all([
-          ticketContract.primaryPrice().then((value: bigint) => BigInt(value)),
-          ticketContract.insurancePremium().then((value: bigint) => BigInt(value)).catch(() => 0n),
-        ]);
-        valueToCover =
-          primaryPrice + (params.action.insured ? insurancePremium : 0n);
-        await ensureSponsoredTopup(embeddedWallet.address, valueToCover + config.sponsoredTopupWei);
-        const writableTicket = ticketContract.connect(embeddedWallet) as unknown as {
-          mintStandard: (insured: boolean, overrides: { value: bigint }) => Promise<{ hash: string; wait: () => Promise<unknown> }>;
-        };
-        const tx = await writableTicket.mintStandard(params.action.insured, { value: valueToCover });
-        txHash = tx.hash;
-        await tx.wait();
-        break;
-      }
-      case "mint_fanpass": {
-        const ticketContract = new Contract(params.event.ticketNftAddress, TICKET_NFT_ABI, catalogProvider);
-        const [primaryPrice, insurancePremium, attestation] = await Promise.all([
-          ticketContract.primaryPrice().then((value: bigint) => BigInt(value)),
-          ticketContract.insurancePremium().then((value: bigint) => BigInt(value)).catch(() => 0n),
-          issueFanPassAttestation(params.event, embeddedWallet.address),
-        ]);
-        valueToCover =
-          primaryPrice + (params.action.insured ? insurancePremium : 0n);
-        await ensureSponsoredTopup(embeddedWallet.address, valueToCover + config.sponsoredTopupWei);
-        const writableTicket = ticketContract.connect(embeddedWallet) as unknown as {
-          mintFanPass: (
-            attestation: string,
-            insured: boolean,
-            deadline: bigint,
-            overrides: { value: bigint },
-          ) => Promise<{ hash: string; wait: () => Promise<unknown> }>;
-        };
-        const tx = await writableTicket.mintFanPass(
-          attestation.signature,
-          params.action.insured,
-          attestation.deadline,
-          { value: valueToCover },
-        );
-        txHash = tx.hash;
-        await tx.wait();
-        break;
-      }
-      case "claim_insurance": {
-        if (!params.event.insurancePool) {
-          throw new Error("Insurance is not configured for this event.");
-        }
-        await ensureSponsoredTopup(embeddedWallet.address, config.sponsoredTopupWei);
-        const insurancePool = new Contract(params.event.insurancePool, INSURANCE_POOL_ABI, catalogProvider);
-        const writableInsurancePool = insurancePool.connect(embeddedWallet) as unknown as {
-          claim: (tokenId: bigint) => Promise<{ hash: string; wait: () => Promise<unknown> }>;
-        };
-        const tx = await writableInsurancePool.claim(BigInt(params.action.tokenId));
-        txHash = tx.hash;
-        await tx.wait();
-        break;
-      }
-      case "redeem_perk": {
-        if (!params.event.perkManager) {
-          throw new Error("Perks are not configured for this event.");
-        }
-        await ensureSponsoredTopup(embeddedWallet.address, config.sponsoredTopupWei);
-        const perkManager = new Contract(params.event.perkManager, PERK_MANAGER_ABI, catalogProvider);
-        const writablePerkManager = perkManager.connect(embeddedWallet) as unknown as {
-          redeemPerk: (perkId: string) => Promise<{ hash: string; wait: () => Promise<unknown> }>;
-        };
-        const tx = await writablePerkManager.redeemPerk(params.action.perkId);
-        txHash = tx.hash;
-        await tx.wait();
-        break;
-      }
-      case "redeem_merch": {
-        if (!params.event.merchStore) {
-          throw new Error("Merch store is not configured for this event.");
-        }
-        await ensureSponsoredTopup(embeddedWallet.address, config.sponsoredTopupWei);
-        const merchStore = new Contract(params.event.merchStore, MERCH_STORE_ABI, catalogProvider);
-        const writableMerchStore = merchStore.connect(embeddedWallet) as unknown as {
-          redeem: (skuId: string) => Promise<{ hash: string; wait: () => Promise<unknown> }>;
-        };
-        const tx = await writableMerchStore.redeem(params.action.skuId);
-        txHash = tx.hash;
-        await tx.wait();
-        break;
-      }
-      default:
-        throw new Error("Unsupported sponsored action.");
-    }
-
-    return {
-      txHash,
-      walletAddress: embeddedWallet.address,
-      sponsoredValueWei: valueToCover.toString(),
     };
   };
 
@@ -816,15 +590,76 @@ export function createApp(indexer: ChainIndexer) {
     };
   };
 
+  const readSystemStateFromChain = async (
+    event: TicketEventDeployment,
+  ): Promise<Awaited<ReturnType<ChainIndexer["getCurrentSystemState"]>>> => {
+    const ticketContract = new Contract(event.ticketNftAddress, TICKET_NFT_ABI, catalogProvider);
+
+    const [
+      insurancePremiumWei,
+      primaryPrice,
+      maxSupply,
+      totalMinted,
+      maxPerWallet,
+      fanPassSupplyCap,
+      fanPassMinted,
+      paused,
+      collectibleMode,
+      baseUris,
+    ] = await Promise.all([
+      ticketContract.insurancePremium().then(String).catch(() => null),
+      ticketContract.primaryPrice(),
+      ticketContract.maxSupply(),
+      ticketContract.totalMinted(),
+      ticketContract.maxPerWallet(),
+      ticketContract.fanPassSupplyCap().then(String).catch(() => null),
+      ticketContract.fanPassMinted().then(String).catch(() => null),
+      ticketContract.paused().catch(() => false),
+      ticketContract.collectibleMode().catch(() => false),
+      ticketContract.baseUris().catch(() => ({
+        baseTokenURI: "",
+        collectibleBaseURI: "",
+      })),
+    ]);
+
+    return {
+      version: (event.version ?? "v1") === "v2" ? "v2" : "v1",
+      primaryPriceWei: String(primaryPrice),
+      insurancePremiumWei,
+      maxSupply: String(maxSupply),
+      totalMinted: String(totalMinted),
+      maxPerWallet: String(maxPerWallet),
+      fanPassSupplyCap,
+      fanPassMinted,
+      paused: Boolean(paused),
+      collectibleMode: Boolean(collectibleMode),
+      baseTokenURI: String(baseUris.baseTokenURI ?? ""),
+      collectibleBaseURI: String(baseUris.collectibleBaseURI ?? ""),
+    };
+  };
+
   const getSystemStateSnapshot = async (ticketEventId: string): Promise<SystemStatePayload> => {
     const cached = systemStateCache.get(ticketEventId);
     if (cached && Date.now() - cached.cachedAt < 1_000) {
       return cached.value;
     }
 
+    let state: Awaited<ReturnType<ChainIndexer["getCurrentSystemState"]>>;
+    try {
+      state = await indexer.getCurrentSystemState(ticketEventId);
+    } catch (error) {
+      const message = normalizeError(error);
+      if (!message.includes("Unknown ticket event id")) {
+        throw error;
+      }
+
+      const event = await getEventCatalogEntry(ticketEventId);
+      state = await readSystemStateFromChain(event);
+    }
+
     const nextValue: SystemStatePayload = {
       ticketEventId,
-      ...(await indexer.getCurrentSystemState(ticketEventId)),
+      ...state,
     };
     systemStateCache.set(ticketEventId, {
       value: nextValue,
@@ -957,8 +792,7 @@ export function createApp(indexer: ChainIndexer) {
       });
       const origin = `${request.protocol}://${request.get("host") ?? `localhost:${config.port}`}`;
 
-      response.setHeader("Content-Type", "application/json; charset=utf-8");
-      response.setHeader("Cache-Control", "public, max-age=60");
+      setDemoAssetResponseHeaders(response, "application/json; charset=utf-8");
       response.json(
         buildDemoTicketMetadata({
           event: asset.event,
@@ -980,8 +814,7 @@ export function createApp(indexer: ChainIndexer) {
         variant: request.params.variant ?? "",
       });
 
-      response.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
-      response.setHeader("Cache-Control", "public, max-age=60");
+      setDemoAssetResponseHeaders(response, "image/svg+xml; charset=utf-8");
       response.send(
         buildDemoTicketSvg({
           event: asset.event,
@@ -1091,183 +924,6 @@ export function createApp(indexer: ChainIndexer) {
       response.json({
         items,
         defaultEventId,
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post("/v1/embedded-wallet/request-code", async (request, response, next) => {
-    try {
-      if (!embeddedWalletEnabled || !config.embeddedWalletSessionSecret) {
-        throw new Error("Embedded wallet beta is not enabled.");
-      }
-
-      const body = embeddedWalletRequestSchema.parse(request.body);
-      const email = normalizeEmail(body.email);
-      const wallet = getEmbeddedWallet(email);
-      const code = generateVerificationCode();
-      const expiresAt = Date.now() + config.embeddedWalletCodeTtlSeconds * 1000;
-      const codeHash = hashVerificationCode(config.embeddedWalletSessionSecret, email, code);
-
-      await upsertEmbeddedWalletChallenge({
-        email,
-        codeHash,
-        walletAddress: wallet.address,
-        expiresAt,
-      });
-
-      response.json({
-        enabled: true,
-        email,
-        walletAddress: wallet.address,
-        expiresAt,
-        codeSent: true,
-        devCode: config.embeddedWalletDevMode ? code : null,
-        provider: {
-          id: EMBEDDED_WALLET_PROVIDER_ID,
-          label: EMBEDDED_WALLET_PROVIDER_LABEL,
-          sponsoredActions: [...SPONSORED_ACTIONS],
-        },
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post("/v1/embedded-wallet/verify-code", async (request, response, next) => {
-    try {
-      if (!embeddedWalletEnabled || !config.embeddedWalletSessionSecret) {
-        throw new Error("Embedded wallet beta is not enabled.");
-      }
-
-      const body = embeddedWalletVerifySchema.parse(request.body);
-      const email = normalizeEmail(body.email);
-      const challenge = await getEmbeddedWalletChallenge(email);
-      if (!challenge) {
-        throw new Error("No verification code is active for this e-mail.");
-      }
-
-      const now = Date.now();
-      if (challenge.consumedAt !== null) {
-        throw new Error("This verification code has already been used.");
-      }
-      if (challenge.expiresAt <= now) {
-        throw new Error("This verification code has expired.");
-      }
-      if (!codesMatch(challenge.codeHash, config.embeddedWalletSessionSecret, email, body.code)) {
-        throw new Error("Verification code is invalid.");
-      }
-
-      await consumeEmbeddedWalletChallenge(email, now);
-
-      const expiresAt = now + config.embeddedWalletSessionTtlSeconds * 1000;
-      const claims = createSessionClaims({
-        email,
-        walletAddress: challenge.walletAddress,
-        expiresAt,
-      });
-
-      await createEmbeddedWalletSession({
-        sessionId: claims.sessionId,
-        email: claims.email,
-        walletAddress: claims.walletAddress,
-        issuedAt: now,
-        expiresAt,
-      });
-
-      const sessionToken = signSessionToken(claims, config.embeddedWalletSessionSecret);
-
-      response.json({
-        enabled: true,
-        sessionToken,
-        session: {
-          email: claims.email,
-          walletAddress: claims.walletAddress,
-          expiresAt: claims.expiresAt,
-        },
-        provider: {
-          id: EMBEDDED_WALLET_PROVIDER_ID,
-          label: EMBEDDED_WALLET_PROVIDER_LABEL,
-          sponsoredActions: [...SPONSORED_ACTIONS],
-        },
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get("/v1/embedded-wallet/session", async (request, response) => {
-    if (!embeddedWalletEnabled) {
-      response.json({
-        enabled: false,
-        session: null,
-        provider: null,
-      });
-      return;
-    }
-
-    try {
-      const session = await resolveEmbeddedSession(request);
-      response.json({
-        enabled: true,
-        session: {
-          email: session.email,
-          walletAddress: session.walletAddress,
-          expiresAt: session.expiresAt,
-        },
-        provider: {
-          id: EMBEDDED_WALLET_PROVIDER_ID,
-          label: EMBEDDED_WALLET_PROVIDER_LABEL,
-          sponsoredActions: [...SPONSORED_ACTIONS],
-        },
-      });
-    } catch {
-      response.json({
-        enabled: true,
-        session: null,
-        provider: {
-          id: EMBEDDED_WALLET_PROVIDER_ID,
-          label: EMBEDDED_WALLET_PROVIDER_LABEL,
-          sponsoredActions: [...SPONSORED_ACTIONS],
-        },
-      });
-    }
-  });
-
-  app.post("/v1/embedded-wallet/actions", async (request, response, next) => {
-    try {
-      if (!embeddedWalletEnabled) {
-        throw new Error("Embedded wallet beta is not enabled.");
-      }
-
-      const session = await resolveEmbeddedSession(request);
-      const body = sponsoredWalletActionSchema.parse(request.body);
-      const ticketEventId = await resolveTicketEventId(body.eventId);
-      const event = await getEventCatalogEntry(ticketEventId);
-
-      if ((event.version ?? "v1") !== "v2") {
-        throw new Error("Sponsored wallet actions are only enabled for upgraded events.");
-      }
-
-      const result = await executeSponsoredAction({
-        event,
-        action: body,
-        session,
-      });
-
-      response.json({
-        ok: true,
-        ticketEventId,
-        action: body.action,
-        txHash: result.txHash,
-        walletAddress: result.walletAddress,
-        sponsoredValueWei: result.sponsoredValueWei,
-        provider: {
-          id: EMBEDDED_WALLET_PROVIDER_ID,
-          label: EMBEDDED_WALLET_PROVIDER_LABEL,
-          sponsoredActions: [...SPONSORED_ACTIONS],
-        },
       });
     } catch (error) {
       next(error);

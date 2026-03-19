@@ -11,23 +11,6 @@ function normalizeOptionalString(value: string | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function parseBoolean(value: string | undefined, fallback: boolean): boolean {
-  const normalized = normalizeOptionalString(value);
-  if (!normalized) {
-    return fallback;
-  }
-
-  const lowered = normalized.toLowerCase();
-  if (lowered === "true" || lowered === "1" || lowered === "yes") {
-    return true;
-  }
-  if (lowered === "false" || lowered === "0" || lowered === "no") {
-    return false;
-  }
-
-  return fallback;
-}
-
 function parseFeatureFlags(value: string | undefined): string[] {
   if (!value) {
     return [];
@@ -83,9 +66,6 @@ export const RUNTIME_CONFIG: RuntimeConfig = {
     0,
   ),
   governancePortalUrl: normalizeApiBaseUrl(import.meta.env.VITE_GOVERNANCE_PORTAL_URL),
-  embeddedWalletEnabled: parseBoolean(import.meta.env.VITE_EMBEDDED_WALLET_ENABLED, false),
-  embeddedWalletLabel:
-    normalizeOptionalString(import.meta.env.VITE_EMBEDDED_WALLET_LABEL) ?? "Embedded Wallet Beta",
 };
 
 export function hasFeatureFlag(config: RuntimeConfig, flag: string): boolean {

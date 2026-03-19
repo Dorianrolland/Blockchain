@@ -91,8 +91,10 @@ describe("EventDetailPage", () => {
     );
 
     expect(screen.getByRole("heading", { name: /Paris Finals/i })).toBeInTheDocument();
-    expect(screen.getByText("Legacy rails")).toBeInTheDocument();
-    expect(screen.getByText(/still uses the legacy rail set/i)).toBeInTheDocument();
+    expect(screen.getByText("Core rails")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /this event still runs on the core rail set/i }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /Ticket capability map/i })).toBeInTheDocument();
     expect(screen.getByText(/Fan-Fuel and reputation/i)).toBeInTheDocument();
     expect(screen.getByText(/Why this ticket is safer/i)).toBeInTheDocument();
@@ -177,7 +179,7 @@ describe("EventDetailPage", () => {
       </QueryClientProvider>,
     );
 
-    expect(screen.getByText("Full rail set")).toBeInTheDocument();
+    expect(screen.getByText("Full fan stack")).toBeInTheDocument();
     expect(screen.getByText(/Protected fan lane/i)).toBeInTheDocument();
     expect(screen.getByText("30.00%")).toBeInTheDocument();
 

@@ -18,8 +18,7 @@ function preflightSummary(
 
 export function TransactionPreviewDrawer() {
   const { locale, t } = useI18n();
-  const { pendingPreview, setPendingPreview, confirmPendingPreview, connectedProvider } =
-    useAppState();
+  const { pendingPreview, setPendingPreview, confirmPendingPreview } = useAppState();
 
   if (!pendingPreview) {
     return null;
@@ -133,28 +132,6 @@ export function TransactionPreviewDrawer() {
             },
           ]}
         />
-
-        {connectedProvider?.kind === "embedded" ? (
-          <RiskBanner
-            tone="neutral"
-            title={locale === "fr" ? "Gas sponsorise" : "Gas sponsored"}
-            cause={
-              locale === "fr"
-                ? "Ce wallet e-mail beta envoie la transaction via le rail sponsorise de la plateforme."
-                : "This email wallet beta sends the transaction through the platform-sponsored rail."
-            }
-            impact={
-              locale === "fr"
-                ? "Le fan n'a pas besoin de POL pour ce flux tant qu'il reste dans les actions sponsorisees."
-                : "Fans do not need POL for this flow while they stay inside the sponsored action set."
-            }
-            action={
-              locale === "fr"
-                ? "La revente secondaire et les actions organizer restent sur wallet navigateur pour le moment."
-                : "Secondary resale and organizer actions still stay on a browser wallet for now."
-            }
-          />
-        ) : null}
 
         {warnings.length > 0 ? (
           <InfoList

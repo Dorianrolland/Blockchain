@@ -10,7 +10,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { CONTRACT_CONFIG, validateContractConfig } from "../config/contracts";
 import { RUNTIME_CONFIG } from "../config/runtime";
 import { createBffClient } from "../lib/bffClient";
-import { createChainTicketClient, createSponsoredChainTicketClient } from "../lib/chainTicketClient";
+import { createChainTicketClient } from "../lib/chainTicketClient";
 import { discoverFactoryEvents, getFallbackEventDeployment } from "../lib/eventCatalog";
 import { mapEthersError } from "../lib/errors";
 import { remainingSupply } from "../lib/format";
@@ -257,16 +257,6 @@ export function AppStateProvider({
     walletProviders,
     selectedProviderId,
     setSelectedProviderId,
-    embeddedWalletEnabled,
-    embeddedWalletEmail,
-    setEmbeddedWalletEmail,
-    embeddedWalletCode,
-    setEmbeddedWalletCode,
-    embeddedWalletSession,
-    embeddedWalletDevCode,
-    isEmbeddedWalletBusy,
-    requestEmbeddedWalletCode,
-    verifyEmbeddedWalletCode,
     connectedProvider,
     walletAddress,
     walletChainId,
@@ -277,13 +267,10 @@ export function AppStateProvider({
     disconnectWallet,
   } = useWalletSession({
     contractConfig,
-    runtimeConfig,
     hasValidConfig,
     createClient,
-    createSponsoredClient: createSponsoredChainTicketClient,
     walletConnector,
     readClient,
-    bffClient,
     clearMessages,
     setErrorMessage,
     setStatusMessage,
@@ -470,16 +457,6 @@ export function AppStateProvider({
       walletProviders,
       selectedProviderId,
       setSelectedProviderId,
-      embeddedWalletEnabled,
-      embeddedWalletEmail,
-      setEmbeddedWalletEmail,
-      embeddedWalletCode,
-      setEmbeddedWalletCode,
-      embeddedWalletSession,
-      embeddedWalletDevCode,
-      isEmbeddedWalletBusy,
-      requestEmbeddedWalletCode,
-      verifyEmbeddedWalletCode,
       connectedProvider,
       walletAddress,
       walletChainId,
@@ -536,11 +513,6 @@ export function AppStateProvider({
       connectedProvider,
       contractConfig,
       disconnectWallet,
-      embeddedWalletCode,
-      embeddedWalletDevCode,
-      embeddedWalletEmail,
-      embeddedWalletEnabled,
-      embeddedWalletSession,
       errorMessage,
       fetchTicketTimeline,
       hasValidConfig,
@@ -557,7 +529,6 @@ export function AppStateProvider({
       marketStatsQuery.isLoading,
       pendingPreview,
       preparePreview,
-      requestEmbeddedWalletCode,
       refreshDashboard,
       runtimeConfig,
       selectedEvent.name,
@@ -565,8 +536,6 @@ export function AppStateProvider({
       setSelectedEventId,
       selectedProviderId,
       setSelectedProviderId,
-      setEmbeddedWalletCode,
-      setEmbeddedWalletEmail,
       setPendingPreview,
       setOnboardingSeen,
       setUiMode,
@@ -589,10 +558,8 @@ export function AppStateProvider({
       walletCapRemaining,
       walletChainId,
       walletProviders,
-      verifyEmbeddedWalletCode,
       watchAlerts,
       watchlist,
-      isEmbeddedWalletBusy,
     ],
   );
 

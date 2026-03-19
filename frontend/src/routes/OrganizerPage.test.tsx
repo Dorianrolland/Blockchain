@@ -167,9 +167,9 @@ describe("OrganizerPage", () => {
   it("keeps governance actions read-only for ops-only wallets", () => {
     renderPage();
 
-    expect(screen.getByText("Legacy rails")).toBeInTheDocument();
+    expect(screen.getByText("Core rails")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Product rollout status" })).toBeInTheDocument();
-    expect(screen.getByText(/still runs on the legacy rail set/i)).toBeInTheDocument();
+    expect(screen.getByText(/still runs on the core rail set/i)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Operational controls" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Pause System$/i })).toBeEnabled();
     expect(screen.getByRole("button", { name: /Grant scanner/i })).toBeEnabled();
@@ -222,13 +222,13 @@ describe("OrganizerPage", () => {
 
     renderPage();
 
-    expect(screen.getByText("Full rail set")).toBeInTheDocument();
-    expect(screen.getByText(/already carries the full business rail set/i)).toBeInTheDocument();
+    expect(screen.getByText("Full fan stack")).toBeInTheDocument();
+    expect(screen.getByText(/already carries the full fan stack/i)).toBeInTheDocument();
     expect(screen.getAllByText("30.00%").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /Enable Collectible/i })).toBeEnabled();
     expect(screen.getByRole("button", { name: /Prepare enable packet/i })).toBeEnabled();
     expect(screen.getByText(/Direct governance wallet available in this session/i)).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /Upgraded business rails/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Fan business rails/i })).toBeInTheDocument();
   });
 
   it("prepares and copies a timelock governance packet", async () => {

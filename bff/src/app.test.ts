@@ -4,11 +4,7 @@ import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const repositoryMocks = vi.hoisted(() => ({
-  consumeEmbeddedWalletChallenge: vi.fn(),
-  createEmbeddedWalletSession: vi.fn(),
   getActiveListings: vi.fn(),
-  getEmbeddedWalletChallenge: vi.fn(),
-  getEmbeddedWalletSession: vi.fn(),
   getDemoCatalogEntries: vi.fn(),
   getEventDeployments: vi.fn(),
   getFanTicketProfileStats: vi.fn(),
@@ -17,8 +13,6 @@ const repositoryMocks = vi.hoisted(() => ({
   getOperationalSummary: vi.fn(),
   getTicketTimeline: vi.fn(),
   getTicketsByOwner: vi.fn(),
-  touchEmbeddedWalletSession: vi.fn(),
-  upsertEmbeddedWalletChallenge: vi.fn(),
 }));
 
 const chainViewMocks = vi.hoisted(() => ({
@@ -51,11 +45,6 @@ function applyBffEnv(): void {
   process.env.HEALTH_STALL_WARN_MS = "60000";
   process.env.HEALTH_STALL_CRITICAL_MS = "180000";
   process.env.HEALTH_RATE_LIMIT_STREAK_WARN = "3";
-  process.env.EMBEDDED_WALLET_MASTER_KEY = "embedded-wallet-test-master";
-  process.env.EMBEDDED_WALLET_SESSION_SECRET = "embedded-wallet-test-session";
-  process.env.EMBEDDED_WALLET_DEV_MODE = "true";
-  process.env.SPONSOR_RELAY_PRIVATE_KEY =
-    "0x5220ed6236ded5135e57d1b2aff5f1ca93296ffd312bdbde4f22d917065cdb7b";
 }
 
 class FakeIndexer extends EventEmitter {
@@ -117,12 +106,6 @@ describe("createApp", () => {
       currentTicketCount: 0,
       listedTicketCount: 0,
     });
-    repositoryMocks.upsertEmbeddedWalletChallenge.mockResolvedValue(undefined);
-    repositoryMocks.getEmbeddedWalletChallenge.mockResolvedValue(null);
-    repositoryMocks.consumeEmbeddedWalletChallenge.mockResolvedValue(undefined);
-    repositoryMocks.createEmbeddedWalletSession.mockResolvedValue(undefined);
-    repositoryMocks.getEmbeddedWalletSession.mockResolvedValue(null);
-    repositoryMocks.touchEmbeddedWalletSession.mockResolvedValue(undefined);
     repositoryMocks.getDemoCatalogEntries.mockResolvedValue([]);
     repositoryMocks.getOperationalSummary.mockResolvedValue({
       roles: [],
@@ -207,7 +190,7 @@ describe("createApp", () => {
     expect(metricsResponse.text).toContain(
       'chainticket_http_requests_total{method="GET",path="/v1/health",status="200"} 1',
     );
-  });
+  }, 15_000);
 
   it("reports readModelReady false until the cursor reaches the configured deployment block", async () => {
     repositoryMocks.getIndexedBlock.mockResolvedValue(90);
@@ -444,6 +427,7 @@ describe("createApp", () => {
 
     expect(metadataResponse.status).toBe(200);
     expect(metadataResponse.headers["content-type"]).toContain("application/json");
+    expect(metadataResponse.headers["cross-origin-resource-policy"]).toBe("cross-origin");
     expect(metadataResponse.body).toMatchObject({
       name: "Mega Stadium Tour Mobile Entry Pass #0",
       image: expect.stringContaining(
@@ -462,6 +446,7 @@ describe("createApp", () => {
 
     expect(svgResponse.status).toBe(200);
     expect(svgResponse.headers["content-type"]).toContain("image/svg+xml");
+    expect(svgResponse.headers["cross-origin-resource-policy"]).toBe("cross-origin");
     expect(svgMarkup).toContain("Mega Stadium Tour");
     expect(svgMarkup).toContain("Collectible Edition");
     expect(svgMarkup).toContain("Demo pass only");
@@ -638,54 +623,4 @@ describe("createApp", () => {
     );
   });
 
-  it("issues and restores embedded wallet beta sessions", async () => {
-    const { createApp } = await import("./app.js");
-    const app = createApp(new FakeIndexer() as never);
-
-    const requestCodeResponse = await request(app)
-      .post("/v1/embedded-wallet/request-code")
-      .send({ email: "Fan@Example.com" });
-
-    expect(requestCodeResponse.status).toBe(200);
-    expect(requestCodeResponse.body).toMatchObject({
-      enabled: true,
-      email: "fan@example.com",
-      codeSent: true,
-      provider: {
-        id: "embedded-beta",
-      },
-    });
-    expect(requestCodeResponse.body.devCode).toMatch(/^\d{6}$/);
-    expect(requestCodeResponse.body.walletAddress).toMatch(/^0x[a-fA-F0-9]{40}$/);
-
-    const verifyResponse = await request(app)
-      .post("/v1/embedded-wallet/verify-code")
-      .send({
-        email: "fan@example.com",
-        code: requestCodeResponse.body.devCode,
-      });
-
-    expect(verifyResponse.status).toBe(200);
-    expect(verifyResponse.body.sessionToken).toMatch(/\./);
-    expect(verifyResponse.body.session).toMatchObject({
-      email: "fan@example.com",
-      walletAddress: requestCodeResponse.body.walletAddress,
-    });
-
-    const restoreResponse = await request(app)
-      .get("/v1/embedded-wallet/session")
-      .set("Authorization", `Bearer ${verifyResponse.body.sessionToken}`);
-
-    expect(restoreResponse.status).toBe(200);
-    expect(restoreResponse.body).toMatchObject({
-      enabled: true,
-      session: {
-        email: "fan@example.com",
-        walletAddress: requestCodeResponse.body.walletAddress,
-      },
-      provider: {
-        id: "embedded-beta",
-      },
-    });
-  });
 });

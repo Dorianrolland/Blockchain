@@ -6,6 +6,7 @@ import {
   Badge,
   ButtonGroup,
   Card,
+  DetailAccordion,
   EmptyState,
   InfoList,
   PageHeader,
@@ -404,7 +405,11 @@ export function MarketPage() {
     <div className="route-stack market-route" data-testid="market-page">
       <PageHeader
         title={copy.title}
-        subtitle={copy.subtitle}
+        subtitle={
+          locale === "fr"
+            ? "Un marche officiel plus premium: signaux clairs, creation d'annonce simple et inventaire plus propre."
+            : "A more premium official market: clear signals, simpler listing flow, and cleaner resale inventory."
+        }
         workspace="marketplace"
         context={
           <div className="inline-actions">
@@ -537,60 +542,66 @@ export function MarketPage() {
             </ButtonGroup>
           </Card>
 
-          <Card className="market-builder-card" surface="glass">
-            <SectionHeader title={copy.filtersTitle} subtitle={copy.filtersSubtitle} />
-            <div className="market-toolbar-grid">
-              <label>
-                {copy.sortLabel}
-                <select value={sortMode} onChange={(event) => setSortMode(event.target.value as MarketSortMode)}>
-                  <option value="price_asc">{copy.sortPriceAsc}</option>
-                  <option value="price_desc">{copy.sortPriceDesc}</option>
-                  <option value="recent">{copy.sortRecent}</option>
-                </select>
-              </label>
-              <label>
-                {copy.filterLabel}
-                <select value={filterMode} onChange={(event) => setFilterMode(event.target.value as MarketFilterMode)}>
-                  <option value="all">{copy.filterAll}</option>
-                  <option value="mine">{copy.filterMine}</option>
-                  <option value="open">{copy.filterOpen}</option>
-                </select>
-              </label>
-            </div>
-            <InfoList
-              entries={[
-                {
-                  label: copy.selectedTicket,
-                  value:
-                    selectedOwnedTicket === null
-                      ? selectedToken === null
-                        ? copy.ticketPrompt
-                        : copy.ticketMissing
-                      : `#${selectedOwnedTicket.tokenId.toString()}`,
-                },
-                {
-                  label: copy.ticketState,
-                  value:
-                    selectedOwnedTicket === null
-                      ? "-"
-                      : selectedOwnedTicket.used
-                        ? copy.alreadyUsed
-                        : selectedOwnedTicket.listed
-                          ? copy.alreadyListed
-                          : copy.readyForResale,
-                },
-                {
-                  label: copy.livePrecheck,
-                  value:
-                    marketPreflight === null
-                      ? copy.precheckPrompt
-                      : marketPreflight.ok
-                        ? copy.safeToSign
-                        : marketPreflight.blockers.join(" | "),
-                },
-              ]}
-            />
-          </Card>
+          <DetailAccordion
+            title={copy.filtersTitle}
+            subtitle={copy.filtersSubtitle}
+            defaultOpenDesktop
+            className="market-detail-accordion"
+          >
+            <Card className="market-builder-card market-builder-card-quiet" surface="glass">
+              <div className="market-toolbar-grid">
+                <label>
+                  {copy.sortLabel}
+                  <select value={sortMode} onChange={(event) => setSortMode(event.target.value as MarketSortMode)}>
+                    <option value="price_asc">{copy.sortPriceAsc}</option>
+                    <option value="price_desc">{copy.sortPriceDesc}</option>
+                    <option value="recent">{copy.sortRecent}</option>
+                  </select>
+                </label>
+                <label>
+                  {copy.filterLabel}
+                  <select value={filterMode} onChange={(event) => setFilterMode(event.target.value as MarketFilterMode)}>
+                    <option value="all">{copy.filterAll}</option>
+                    <option value="mine">{copy.filterMine}</option>
+                    <option value="open">{copy.filterOpen}</option>
+                  </select>
+                </label>
+              </div>
+              <InfoList
+                entries={[
+                  {
+                    label: copy.selectedTicket,
+                    value:
+                      selectedOwnedTicket === null
+                        ? selectedToken === null
+                          ? copy.ticketPrompt
+                          : copy.ticketMissing
+                        : `#${selectedOwnedTicket.tokenId.toString()}`,
+                  },
+                  {
+                    label: copy.ticketState,
+                    value:
+                      selectedOwnedTicket === null
+                        ? "-"
+                        : selectedOwnedTicket.used
+                          ? copy.alreadyUsed
+                          : selectedOwnedTicket.listed
+                            ? copy.alreadyListed
+                            : copy.readyForResale,
+                  },
+                  {
+                    label: copy.livePrecheck,
+                    value:
+                      marketPreflight === null
+                        ? copy.precheckPrompt
+                        : marketPreflight.ok
+                          ? copy.safeToSign
+                          : marketPreflight.blockers.join(" | "),
+                  },
+                ]}
+              />
+            </Card>
+          </DetailAccordion>
         </div>
       </Panel>
 

@@ -2,8 +2,6 @@ import type {
   BackendHealthSnapshot,
   ChainTicketEvent,
   CollectibleView,
-  EmbeddedWalletCodeRequest,
-  EmbeddedWalletSession,
   FanProfile,
   FanPerkView,
   FanPassAttestation,
@@ -15,8 +13,6 @@ import type {
   MerchRedemptionView,
   MerchSkuView,
   MarketplaceView,
-  SponsoredWalletActionRequest,
-  SponsoredWalletActionResponse,
   SystemState,
   TicketCoverage,
   TicketTimelineEntry,
@@ -238,52 +234,6 @@ interface BffMerchRedemptionPayload {
   fuelCost: string;
   txHash: string;
   blockNumber: number;
-}
-
-interface BffEmbeddedWalletProviderPayload {
-  id: string;
-  label: string;
-  sponsoredActions: string[];
-}
-
-interface BffEmbeddedWalletCodePayload {
-  enabled: boolean;
-  email: string;
-  walletAddress: string;
-  expiresAt: number;
-  codeSent: boolean;
-  devCode: string | null;
-  provider: BffEmbeddedWalletProviderPayload;
-}
-
-interface BffEmbeddedWalletSessionPayload {
-  enabled: boolean;
-  session: {
-    email: string;
-    walletAddress: string;
-    expiresAt: number;
-  } | null;
-  provider: BffEmbeddedWalletProviderPayload | null;
-}
-
-interface BffEmbeddedWalletVerifyPayload {
-  enabled: boolean;
-  sessionToken: string;
-  session: {
-    email: string;
-    walletAddress: string;
-    expiresAt: number;
-  };
-  provider: BffEmbeddedWalletProviderPayload;
-}
-
-interface BffSponsoredWalletActionPayload {
-  ok: boolean;
-  ticketEventId: string;
-  action: SponsoredWalletActionRequest["action"];
-  txHash: string;
-  walletAddress: string;
-  sponsoredValueWei: string;
 }
 
 function toBigInt(value: string | null | undefined): bigint | null {
@@ -544,56 +494,6 @@ function parseMerchRedemptions(payload: BffMerchRedemptionPayload[]): MerchRedem
   }));
 }
 
-function parseEmbeddedWalletCodeRequest(
-  payload: BffEmbeddedWalletCodePayload,
-): EmbeddedWalletCodeRequest {
-  return {
-    enabled: payload.enabled,
-    email: payload.email,
-    walletAddress: payload.walletAddress,
-    expiresAt: payload.expiresAt,
-    codeSent: payload.codeSent,
-    devCode: payload.devCode,
-    provider: {
-      id: payload.provider.id,
-      label: payload.provider.label,
-      sponsoredActions: [...payload.provider.sponsoredActions],
-    },
-  };
-}
-
-function parseEmbeddedWalletSession(
-  payload: BffEmbeddedWalletSessionPayload | BffEmbeddedWalletVerifyPayload,
-  sessionToken: string | null,
-): EmbeddedWalletSession | null {
-  if (!payload.session || !payload.provider || !sessionToken) {
-    return null;
-  }
-
-  return {
-    email: payload.session.email,
-    walletAddress: payload.session.walletAddress,
-    expiresAt: payload.session.expiresAt,
-    sessionToken,
-    providerId: payload.provider.id,
-    providerLabel: payload.provider.label,
-    sponsoredActions: [...payload.provider.sponsoredActions],
-  };
-}
-
-function parseSponsoredWalletAction(
-  payload: BffSponsoredWalletActionPayload,
-): SponsoredWalletActionResponse {
-  return {
-    ok: payload.ok,
-    ticketEventId: payload.ticketEventId,
-    action: payload.action,
-    txHash: payload.txHash,
-    walletAddress: payload.walletAddress,
-    sponsoredValue: BigInt(payload.sponsoredValueWei),
-  };
-}
-
 function buildQuery(params: Record<string, string | number | undefined>): string {
   const query = new URLSearchParams();
 
@@ -801,73 +701,6 @@ export class BffClient {
       `/v1/fans/${address}/fanpass-attestation${buildQuery({ eventId })}`,
     );
     return parseFanPassAttestation(payload);
-  }
-
-  async requestEmbeddedWalletCode(email: string): Promise<EmbeddedWalletCodeRequest> {
-    const payload = await this.fetchJson<BffEmbeddedWalletCodePayload>(
-      "/v1/embedded-wallet/request-code",
-      {
-        method: "POST",
-        body: { email },
-      },
-    );
-    return parseEmbeddedWalletCodeRequest(payload);
-  }
-
-  async verifyEmbeddedWalletCode(
-    email: string,
-    code: string,
-  ): Promise<EmbeddedWalletSession> {
-    const payload = await this.fetchJson<BffEmbeddedWalletVerifyPayload>(
-      "/v1/embedded-wallet/verify-code",
-      {
-        method: "POST",
-        body: { email, code },
-      },
-    );
-    const session = parseEmbeddedWalletSession(payload, payload.sessionToken);
-    if (!session) {
-      throw new Error("Embedded wallet verification did not return a session.");
-    }
-    return session;
-  }
-
-  async getEmbeddedWalletSession(
-    sessionToken: string,
-  ): Promise<EmbeddedWalletSession | null> {
-    const payload = await this.fetchJson<BffEmbeddedWalletSessionPayload>(
-      "/v1/embedded-wallet/session",
-      {
-        bearerToken: sessionToken,
-      },
-    );
-    return parseEmbeddedWalletSession(payload, sessionToken);
-  }
-
-  async runSponsoredWalletAction(
-    sessionToken: string,
-    action: SponsoredWalletActionRequest,
-  ): Promise<SponsoredWalletActionResponse> {
-    const body =
-      action.action === "claim_insurance"
-        ? {
-            eventId: action.eventId,
-            action: action.action,
-            tokenId: action.tokenId.toString(),
-          }
-        : action;
-
-    const payload = await this.fetchJson<BffSponsoredWalletActionPayload>(
-      "/v1/embedded-wallet/actions",
-      {
-        method: "POST",
-        bearerToken: sessionToken,
-        body,
-        timeoutMs: 20_000,
-      },
-    );
-
-    return parseSponsoredWalletAction(payload);
   }
 
   watchEvents(

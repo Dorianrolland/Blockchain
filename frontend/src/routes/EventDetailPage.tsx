@@ -8,12 +8,12 @@ import {
   Badge,
   ButtonGroup,
   Card,
+  DetailAccordion,
   EmptyState,
   InfoList,
   PageHeader,
   Panel,
   RiskBanner,
-  SectionHeader,
   SegmentedToggle,
   Tag,
 } from "../components/ui/Primitives";
@@ -150,21 +150,21 @@ export function EventDetailPage() {
           priceLabel: "Prix",
           walletCapLabel: "Cap wallet",
           deploymentVersion: "Set produit",
-          versionV1: "Rails legacy",
-          versionV2: "Set complet",
-          v1StatusTitle: "Cet evenement utilise encore les rails legacy",
+          versionV1: "Rails coeur",
+          versionV2: "Stack fan complete",
+          v1StatusTitle: "Cet evenement tourne encore sur le socle coeur",
           v1StatusCause:
-            "Cet evenement tourne encore sur le rail set historique, donc les rails business avances ne sont pas encore actifs sur ce show.",
+            "Cet evenement tourne encore sur le socle ticketing coeur, donc les rails fan avances ne sont pas encore actifs sur ce show.",
           v1StatusImpact:
             "Vous gardez mint, revente capee, check-in et mode collectible, mais pas encore Fan-Fuel, FanPass protege, assurance parametrique ou merch phygital.",
           v1StatusAction:
-            "Les sections ci-dessous montrent la cible du produit et l'etat reel d'activation de chaque rail sur cet evenement.",
+            "Les sections ci-dessous montrent l'etat reel d'activation de chaque rail sur cet evenement.",
           railsTitle: "Carte des capacites billet",
           railsSubtitle:
             "On rend enfin visible ce que le produit veut devenir: retention fan, protection de la fan-base, assurance et collectibles evolutifs.",
           railFanFuelTitle: "Fan-Fuel et reputation",
           railFanFuelBodyV1:
-            "Ce show reste sur le deploiement legacy: pas encore de score de reputation ni de Fan-Fuel depensable pour debloquer les perks.",
+            "Ce show reste sur le socle coeur: pas encore de score de reputation ni de Fan-Fuel depensable pour debloquer les perks.",
           railFanFuelBodyV2:
             "Chaque achat et presence nourrit un score fan et un wallet de Fan-Fuel qui debloquent les futurs avantages.",
           railFanPassTitle: "Acces fan protege",
@@ -179,7 +179,7 @@ export function EventDetailPage() {
             "Le checkout peut ajouter une prime qui ouvre un claim on-chain si l'oracle declenche la couverture.",
           railResaleTitle: "Revente regulee",
           railResaleBodyV1:
-            "La revente est deja capee, mais la royalty artiste continue n'est pas encore exposee comme rail upgrade complet.",
+            "La revente est deja capee, mais la royalty artiste continue n'est pas encore exposee comme rail fan complet.",
           railResaleBodyV2:
             "Le marche secondaire devient un canal legal et productise, avec plafond anti-scalping et partage de valeur.",
           railCollectibleTitle: "Collectible evolutif",
@@ -215,9 +215,9 @@ export function EventDetailPage() {
           walletRequiredAction: "Connectez le wallet pour continuer.",
           mintPreviewLabel: "Achat primaire",
           mintPreviewDescription: "Acheter un billet primaire directement depuis la page evenement.",
-          standardPreviewLabel: "Achat standard upgrade",
+          standardPreviewLabel: "Achat standard complet",
           standardPreviewDescription:
-            "Acheter un billet standard upgrade avec option d'assurance depuis la page evenement.",
+            "Acheter un billet standard avec option d'assurance depuis la page evenement.",
           fanPassPreviewLabel: "Achat FanPass protege",
           fanPassPreviewDescription:
             "Acheter un FanPass avec attestation signee et option d'assurance depuis la page evenement.",
@@ -275,21 +275,21 @@ export function EventDetailPage() {
           priceLabel: "Price",
           walletCapLabel: "Wallet cap",
           deploymentVersion: "Product rail set",
-          versionV1: "Legacy rails",
-          versionV2: "Full rail set",
-          v1StatusTitle: "This event still uses the legacy rail set",
+          versionV1: "Core rails",
+          versionV2: "Full fan stack",
+          v1StatusTitle: "This event still runs on the core rail set",
           v1StatusCause:
-            "This event still runs on the legacy rail set, so the advanced business rails are not active on this show yet.",
+            "This event still runs on the core ticketing rail set, so the advanced fan rails are not active on this show yet.",
           v1StatusImpact:
             "You still get mint, capped resale, check-in, and collectible mode, but not yet Fan-Fuel, protected FanPass supply, parametric insurance, or phygital merch.",
           v1StatusAction:
-            "The sections below show the product target and the real activation status of each rail for this event.",
+            "The sections below show the real activation status of each rail for this event.",
           railsTitle: "Ticket capability map",
           railsSubtitle:
             "This makes the product ambition legible: fan retention, protected fan access, insurance, and evolving collectibles.",
           railFanFuelTitle: "Fan-Fuel and reputation",
           railFanFuelBodyV1:
-            "This show still runs on the legacy deployment: no live reputation score or spendable Fan-Fuel yet to unlock perks.",
+            "This show still runs on the core rail set: no live reputation score or spendable Fan-Fuel yet to unlock perks.",
           railFanFuelBodyV2:
             "Each purchase and attendance grows a fan score and a Fan-Fuel balance that unlocks future access.",
           railFanPassTitle: "Protected fan lane",
@@ -304,7 +304,7 @@ export function EventDetailPage() {
             "Checkout can add a premium that opens an on-chain claim when the oracle triggers coverage.",
           railResaleTitle: "Regulated resale",
           railResaleBodyV1:
-            "Resale is already capped, but the continuous artist royalty is not yet surfaced as a complete upgraded rail.",
+            "Resale is already capped, but the continuous artist royalty is not yet surfaced as a complete fan rail.",
           railResaleBodyV2:
             "The secondary market becomes a legal product rail with anti-scalping caps and value sharing.",
           railCollectibleTitle: "Evolving collectible arc",
@@ -340,9 +340,9 @@ export function EventDetailPage() {
           walletRequiredAction: "Connect your wallet to continue.",
           mintPreviewLabel: "Primary purchase",
           mintPreviewDescription: "Buy one primary ticket directly from the event detail page.",
-          standardPreviewLabel: "Upgraded standard checkout",
+          standardPreviewLabel: "Full standard checkout",
           standardPreviewDescription:
-            "Buy one upgraded standard ticket with optional insurance directly from the event detail page.",
+            "Buy one standard ticket with optional insurance directly from the event detail page.",
           fanPassPreviewLabel: "Protected FanPass checkout",
           fanPassPreviewDescription:
             "Buy one FanPass with a signed attestation and optional insurance directly from the event detail page.",
@@ -372,6 +372,8 @@ export function EventDetailPage() {
   }, [pendingPreview]);
 
   const benefitBadges = getEventBenefitBadges(locale);
+  const surfacedBenefitBadges = benefitBadges.slice(0, 3);
+  const hiddenBenefitCount = Math.max(benefitBadges.length - surfacedBenefitBadges.length, 0);
   const trustPoints = getEventTrustPoints(locale);
   const tabs = event
     ? getEventDetailTabs({
@@ -659,7 +661,11 @@ export function EventDetailPage() {
     <div className="route-stack event-detail-route" data-testid="event-detail-page">
       <PageHeader
         title={event.name}
-        subtitle={copy.subtitle}
+        subtitle={
+          locale === "fr"
+            ? "Un checkout premium, des preuves lisibles et les details avances seulement quand ils sont utiles."
+            : "A premium checkout, readable proof, and advanced details only when they matter."
+        }
         workspace="explore"
         context={
           <div className="inline-actions">
@@ -667,7 +673,6 @@ export function EventDetailPage() {
               {isUpgradedEvent ? copy.versionV2 : copy.versionV1}
             </Tag>
             <Tag tone="default">{event.category ?? copy.validity}</Tag>
-            <Tag tone="info">{formatEventStart(event.startsAt)}</Tag>
             <Tag tone="success">{formatPol(BigInt(event.primaryPriceWei))} POL</Tag>
           </div>
         }
@@ -680,20 +685,28 @@ export function EventDetailPage() {
         }
       />
 
+      <EventDemoNotice event={event} compact />
+
       <section className="event-detail-shell">
         <Panel className="event-detail-hero-card" surface="glass">
           <div className="event-detail-hero-media">
             <EventPoster event={event} className="event-detail-poster" />
           </div>
           <div className="event-detail-hero-copy">
+            <p className="eyebrow">{event.category ?? copy.validity}</p>
+            <h2>
+              {locale === "fr"
+                ? "Acces verifiable, revente plafonnee, souvenir collectible ensuite."
+                : "Verifiable access, capped resale, collectible souvenir after entry."}
+            </h2>
             <div className="inline-actions">
-              {benefitBadges.map((badge) => (
+              {surfacedBenefitBadges.map((badge) => (
                 <Tag key={badge} tone="info">
                   {badge}
                 </Tag>
               ))}
+              {hiddenBenefitCount > 0 ? <Tag tone="default">+{hiddenBenefitCount}</Tag> : null}
             </div>
-            <h2>{copy.title}</h2>
             <p>
               {[event.venueName, event.city, event.countryCode].filter(Boolean).join(" | ") || event.ticketEventId}
             </p>
@@ -773,9 +786,16 @@ export function EventDetailPage() {
                 />
               </>
             ) : null}
-            <Badge tone={mintPreflight?.ok ?? true ? "success" : "warning"} emphasis="solid">
-              {mintPreflight ? (mintPreflight.ok ? copy.statusReady : copy.statusBlocked) : copy.statusReady}
-            </Badge>
+            <div className="event-buy-status-row">
+              <Badge tone={mintPreflight?.ok ?? true ? "success" : "warning"} emphasis="solid">
+                {mintPreflight ? (mintPreflight.ok ? copy.statusReady : copy.statusBlocked) : copy.statusReady}
+              </Badge>
+              {txState.status !== "idle" ? (
+                <Tag tone={txState.status === "error" ? "danger" : txState.status === "success" ? "success" : "info"}>
+                  {txState.status}
+                </Tag>
+              ) : null}
+            </div>
             <ButtonGroup>
               {walletAddress ? (
                 <button type="button" className="primary" onClick={() => void onMint()}>
@@ -801,7 +821,7 @@ export function EventDetailPage() {
             </ul>
           </Panel>
 
-          <Card className="event-buy-panel" surface="glass">
+          <Card className="event-buy-panel event-buy-status-card" surface="glass">
             <h3>{copy.txTitle}</h3>
             <p>{txState.label ?? copy.txFallback}</p>
             <div className="inline-actions">
@@ -813,8 +833,6 @@ export function EventDetailPage() {
           </Card>
         </aside>
       </section>
-
-      <EventDemoNotice event={event} />
 
       {!isUpgradedEvent ? (
         <RiskBanner
@@ -836,53 +854,68 @@ export function EventDetailPage() {
         />
       ) : null}
 
-      <section className="event-trust-shell">
-        <SectionHeader title={copy.railsTitle} subtitle={copy.railsSubtitle} />
-        <div className="event-trust-grid">
-          {railCards.map((rail) => (
-            <Card key={rail.key} className="event-trust-card" surface="glass">
-              <div className="inline-actions">
-                <h3>{rail.title}</h3>
-                <Badge tone={rail.tone}>{rail.badge}</Badge>
-              </div>
-              <p>{rail.body}</p>
-              <InfoList entries={rail.entries} />
-            </Card>
-          ))}
-        </div>
-      </section>
+      <section className="event-detail-accordion-stack">
+        <DetailAccordion
+          title={copy.railsTitle}
+          subtitle={copy.railsSubtitle}
+          defaultOpenDesktop
+          className="event-detail-accordion"
+        >
+          <div className="event-trust-grid">
+            {railCards.map((rail) => (
+              <Card key={rail.key} className="event-trust-card" surface="glass">
+                <div className="inline-actions">
+                  <h3>{rail.title}</h3>
+                  <Badge tone={rail.tone}>{rail.badge}</Badge>
+                </div>
+                <p>{rail.body}</p>
+                <InfoList entries={rail.entries} />
+              </Card>
+            ))}
+          </div>
+        </DetailAccordion>
 
-      <section className="event-trust-shell">
-        <SectionHeader title={copy.whySafer} subtitle={copy.whySaferBody} />
-        <div className="event-trust-grid">
-          {trustPoints.map((point) => (
-            <Card key={point.title} className="event-trust-card" surface="glass">
-              <h3>{point.title}</h3>
-              <p>{point.body}</p>
-            </Card>
-          ))}
-        </div>
-      </section>
+        <DetailAccordion
+          title={copy.whySafer}
+          subtitle={copy.whySaferBody}
+          className="event-detail-accordion"
+        >
+          <div className="event-trust-grid">
+            {trustPoints.map((point) => (
+              <Card key={point.title} className="event-trust-card" surface="glass">
+                <h3>{point.title}</h3>
+                <p>{point.body}</p>
+              </Card>
+            ))}
+          </div>
+        </DetailAccordion>
 
-      {activeTabContent ? (
-        <Panel className="event-tab-shell" surface="glass">
-          <SegmentedToggle<EventDetailTabKey>
-            value={activeTab}
-            onChange={setActiveTab}
-            options={tabs.map((tab) => ({ value: tab.key, label: tab.label }))}
-            ariaLabel="Event detail sections"
-          />
-          <Card className="event-tab-card" surface="quiet">
-            <h3>{activeTabContent.title}</h3>
-            <p>{activeTabContent.lead}</p>
-            <ul className="plain-list">
-              {activeTabContent.bullets.map((bullet) => (
-                <li key={bullet}>{bullet}</li>
-              ))}
-            </ul>
-          </Card>
-        </Panel>
-      ) : null}
+        {activeTabContent ? (
+          <DetailAccordion
+            title={activeTabContent.title}
+            subtitle={activeTabContent.lead}
+            className="event-detail-accordion"
+          >
+            <Panel className="event-tab-shell" surface="quiet">
+              <SegmentedToggle<EventDetailTabKey>
+                value={activeTab}
+                onChange={setActiveTab}
+                options={tabs.map((tab) => ({ value: tab.key, label: tab.label }))}
+                ariaLabel="Event detail sections"
+              />
+              <Card className="event-tab-card" surface="quiet">
+                <h3>{activeTabContent.title}</h3>
+                <p>{activeTabContent.lead}</p>
+                <ul className="plain-list">
+                  {activeTabContent.bullets.map((bullet) => (
+                    <li key={bullet}>{bullet}</li>
+                  ))}
+                </ul>
+              </Card>
+            </Panel>
+          </DetailAccordion>
+        ) : null}
+      </section>
     </div>
   );
 }

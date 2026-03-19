@@ -210,15 +210,15 @@ export function OrganizerPage() {
           totalMinted: "Total mint",
           notConnected: "Non connecte",
           deploymentVersion: "Set produit",
-          versionV1: "Rails legacy",
-          versionV2: "Set complet",
+          versionV1: "Rails coeur",
+          versionV2: "Stack fan complete",
           rolloutTitle: "Etat du rollout produit",
           rolloutSubtitle:
             "On rend visible ce qui est vraiment live pour cet evenement, au lieu de laisser la stack technique seule raconter l'etat du produit.",
           rolloutCauseV1:
-            "Cet evenement tourne encore sur le set legacy, donc Fan-Fuel, FanPass protege, assurance et merch ne sont pas actifs ici.",
+            "Cet evenement tourne encore sur le socle coeur, donc Fan-Fuel, FanPass protege, assurance et merch ne sont pas actifs ici.",
           rolloutCauseV2:
-            "Cet evenement porte deja le set business complet et peut servir de base a l'experience fan finale.",
+            "Cet evenement porte deja la stack fan complete et peut servir de base a l'experience fan finale.",
           rolloutFanTitle: "Retention fan",
           rolloutAccessTitle: "Acces protege et revente",
           rolloutInsuranceTitle: "Assurance et oracle",
@@ -261,15 +261,15 @@ export function OrganizerPage() {
           totalMinted: "Total minted",
           notConnected: "Not connected",
           deploymentVersion: "Product rail set",
-          versionV1: "Legacy rails",
-          versionV2: "Full rail set",
+          versionV1: "Core rails",
+          versionV2: "Full fan stack",
           rolloutTitle: "Product rollout status",
           rolloutSubtitle:
             "This makes the product state explicit for the selected event instead of expecting the contract map to tell the whole story.",
           rolloutCauseV1:
-            "This event still runs on the legacy rail set, so Fan-Fuel, protected FanPass, insurance, and merch are not active here.",
+            "This event still runs on the core rail set, so Fan-Fuel, protected FanPass, insurance, and merch are not active here.",
           rolloutCauseV2:
-            "This event already carries the full business rail set and can support the complete fan experience.",
+            "This event already carries the full fan stack and can support the complete fan experience.",
           rolloutFanTitle: "Fan retention",
           rolloutAccessTitle: "Protected access and resale",
           rolloutInsuranceTitle: "Insurance and oracle",
@@ -566,8 +566,8 @@ export function OrganizerPage() {
         title={copy.title}
         subtitle={
           locale === "fr"
-            ? "Le bloc ops est isole du flux fan: monitoring, roles, scanner, gouvernance et signaux de marche vivent dans un espace pro dedie."
-            : "The ops block is isolated from the fan flow: monitoring, roles, scanner, governance, and market signals live in a dedicated pro workspace."
+            ? "Une console organizer plus lisible: statut live, actions critiques et gouvernance, sans surcharge."
+            : "A more readable organizer console: live status, critical actions, and governance without overload."
         }
         workspace="organizer"
         context={
@@ -654,13 +654,14 @@ export function OrganizerPage() {
         </Card>
       </section>
 
-      <Panel className="organizer-overview-panel" surface="glass">
-        <SectionHeader
-          title={copy.operationalControls}
-          subtitle={copy.operationalSubtitle}
-        />
-
-        <section className="organizer-cockpit-grid">
+      <DetailAccordion
+        title={copy.operationalControls}
+        subtitle={copy.operationalSubtitle}
+        defaultOpenDesktop
+        className="organizer-detail-accordion"
+      >
+        <Panel className="organizer-overview-panel" surface="glass">
+          <section className="organizer-cockpit-grid">
           <Card className="organizer-panel-card" surface="accent">
             <h3>{copy.immediateControls}</h3>
             <p>{copy.immediateBody}</p>
@@ -778,15 +779,17 @@ export function OrganizerPage() {
               <p>Operator roster unavailable right now.</p>
             )}
           </Card>
-        </section>
-      </Panel>
+          </section>
+        </Panel>
+      </DetailAccordion>
 
-      <Panel className="organizer-governance-panel" surface="glass">
-        <SectionHeader
-          title="Governance controls"
-          subtitle="Collectible mode is intentionally split from day-to-day ops so the product feels more trustworthy."
-        />
-        <div className="organizer-cockpit-grid">
+      <DetailAccordion
+        title="Governance controls"
+        subtitle="Collectible mode is intentionally split from day-to-day ops so the product feels more trustworthy."
+        className="organizer-detail-accordion"
+      >
+        <Panel className="organizer-governance-panel" surface="glass">
+          <div className="organizer-cockpit-grid">
           <Card className="organizer-panel-card" surface="accent">
             <h3>Collectible mode</h3>
             <p>In production, this should travel through a timelock or multisig that owns admin rights.</p>
@@ -960,7 +963,7 @@ export function OrganizerPage() {
 
           {selectedEvent?.version === "v2" ? (
             <Card className="organizer-panel-card" surface="glass">
-              <h3>Upgraded business rails</h3>
+              <h3>Fan business rails</h3>
               <InfoList
                 entries={[
                   { label: "Artist", value: selectedEvent.artistId ?? "-" },
@@ -1006,13 +1009,15 @@ export function OrganizerPage() {
               <p>No admin activity has been indexed yet for this event.</p>
             )}
           </Card>
-        </div>
-      </Panel>
+          </div>
+        </Panel>
+      </DetailAccordion>
 
       <DetailAccordion
-        title="Operational controls"
-        subtitle="Execution safeguards for organizer actions"
+        title="Execution safeguards"
+        subtitle="How organizer permissions stay bounded in production."
         defaultOpenDesktop={uiMode === "advanced"}
+        className="organizer-detail-accordion"
       >
         <ul className="plain-list">
           <li>Pause and unpause controls require pauser permissions.</li>

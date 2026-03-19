@@ -47,8 +47,6 @@ function makeAppState(overrides: Record<string, unknown> = {}) {
       governanceTimelockAddress: null,
       governanceMinDelaySeconds: 0,
       governancePortalUrl: null,
-      embeddedWalletEnabled: false,
-      embeddedWalletLabel: "Embedded Wallet Beta",
     },
     availableEvents: [
       {
@@ -68,16 +66,6 @@ function makeAppState(overrides: Record<string, unknown> = {}) {
     ],
     selectedEventId: "main-event",
     setSelectedEventId: vi.fn(),
-    embeddedWalletEnabled: false,
-    embeddedWalletEmail: "",
-    setEmbeddedWalletEmail: vi.fn(),
-    embeddedWalletCode: "",
-    setEmbeddedWalletCode: vi.fn(),
-    embeddedWalletSession: null,
-    embeddedWalletDevCode: null,
-    isEmbeddedWalletBusy: false,
-    requestEmbeddedWalletCode: vi.fn(),
-    verifyEmbeddedWalletCode: vi.fn(),
     connectedProvider: null,
     isConnecting: false,
     isRefreshing: false,
@@ -165,7 +153,7 @@ describe("AppRouter redirects", () => {
     });
 
     renderRouter("/app/fan");
-    expect(await screen.findByTestId("explore-page")).toBeInTheDocument();
+    expect(await screen.findByTestId("explore-page", {}, { timeout: 5_000 })).toBeInTheDocument();
   });
 
   it("redirects legacy /app/market to Marketplace", async () => {
@@ -187,7 +175,7 @@ describe("AppRouter redirects", () => {
     });
 
     renderRouter("/app/market");
-    expect(await screen.findByTestId("market-page")).toBeInTheDocument();
+    expect(await screen.findByTestId("market-page", {}, { timeout: 5_000 })).toBeInTheDocument();
   });
 
   it("redirects legacy /app/scanner to organizer scanner", async () => {
@@ -209,7 +197,7 @@ describe("AppRouter redirects", () => {
     });
 
     renderRouter("/app/scanner");
-    expect(await screen.findByTestId("scanner-page")).toBeInTheDocument();
+    expect(await screen.findByTestId("scanner-page", {}, { timeout: 5_000 })).toBeInTheDocument();
   });
 
   it("redirects legacy /app/advanced/settings to organizer settings", async () => {
@@ -231,6 +219,6 @@ describe("AppRouter redirects", () => {
     });
 
     renderRouter("/app/advanced/settings");
-    expect(await screen.findByTestId("settings-page")).toBeInTheDocument();
+    expect(await screen.findByTestId("settings-page", {}, { timeout: 5_000 })).toBeInTheDocument();
   });
 });

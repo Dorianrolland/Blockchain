@@ -7,11 +7,11 @@ import {
   Badge,
   ButtonGroup,
   Card,
+  DetailAccordion,
   EmptyState,
   InfoList,
   PageHeader,
   Panel,
-  SectionHeader,
   SegmentedToggle,
   Tag,
 } from "../components/ui/Primitives";
@@ -24,7 +24,7 @@ import { createBffClient } from "../lib/bffClient";
 import { getCollectibleByIdFromChain } from "../lib/collectibles";
 import { TICKET_NFT_ABI } from "../lib/abi";
 import { mapEthersError } from "../lib/errors";
-import { formatAddress, formatPol, formatTimestamp } from "../lib/format";
+import { formatAddress, formatEventStart, formatPol, formatTimestamp } from "../lib/format";
 import { buildTokenUriFromBase } from "../lib/ticketMetadata";
 import { parseTokenIdInput, timelineLabel } from "../lib/timeline";
 import { getTicketPerks, getTicketStateLabel } from "../lib/workspaceContent";
@@ -286,6 +286,27 @@ export function TicketDetailPage() {
       : displayView === "collectible"
       ? preview?.collectibleQrValue ?? preview?.liveQrValue
       : preview?.liveQrValue ?? preview?.collectibleQrValue;
+  const eventMoment = formatEventStart(selectedEvent?.startsAt ?? null);
+  const tokenLabel = tokenId !== null ? `#${tokenId.toString()}` : "#-";
+  const collectibleLabel = collectibleId !== null ? `#${collectibleId.toString()}` : null;
+  const eventLocation = [selectedEvent?.venueName, selectedEvent?.city, selectedEvent?.countryCode]
+    .filter(Boolean)
+    .join(" | ");
+  const compactEventLocation = eventLocation;
+  const passHeadline =
+    selectedMetadata?.name ??
+    (collectibleId !== null
+      ? `Collectible #${collectibleId.toString()}`
+      : selectedEventName || contractConfig.eventName || `Ticket ${tokenLabel}`);
+  const headerTitle = selectedEventName || contractConfig.eventName || passHeadline;
+  const heroTitle =
+    displayView === "collectible"
+      ? locale === "fr"
+        ? "Souvenir collectible"
+        : "Collectible souvenir"
+      : locale === "fr"
+        ? "Pass d'entree mobile"
+        : "Mobile entry pass";
   const copy =
     locale === "fr"
       ? {
@@ -302,7 +323,7 @@ export function TicketDetailPage() {
           premiumPass: "Pass premium",
           chainEvent: "Evenement ChainTicket",
           heroFallback:
-            "La vue pass met la confiance au premier plan, puis laisse la preuve de cycle de vie vivre plus bas au lieu d'injecter du jargon blockchain partout.",
+            "Un pass d'entree premium, lisible en quelques secondes, avec les details avances ranges plus bas quand on en a besoin.",
           livePass: "Pass live",
           collectibleMode: "Collectible",
           ticketMode: "Mode billet",
@@ -320,6 +341,16 @@ export function TicketDetailPage() {
           statusLabel: "Statut",
           manageResale: "Gerer la revente",
           passReady: "Pass pret",
+          passSnapshot: "Essentiel du pass",
+          passSnapshotSubtitle: "Seulement ce qu'il faut voir immediatement.",
+          passDetailsTitle: "Details du pass",
+          passDetailsSubtitle: "Ouvrir seulement si vous avez besoin du detail complet.",
+          insuranceSubtitle: "Prime, police et remboursement sans encombrer l'ecran principal.",
+          lifecycleAccordionSubtitle: "Mint, revente et usage ranges dans une vue preuve a la demande.",
+          heroLiveCaption:
+            "Conservez un ecran propre: le visuel, le QR et le statut font le travail, le reste reste en retrait.",
+          heroCollectibleCaption:
+            "Le souvenir prend le devant de la scene, tandis que les metadonnees et preuves restent consultables a la demande.",
           timelineLoadingTitle: "Chargement de la timeline",
           lifecycleTitle: "Preuve de cycle de vie",
           lifecycleSubtitle: "Mint, revente, usage et metadonnees regroupes par phase pour ne pas surcharger le hero.",
@@ -354,7 +385,7 @@ export function TicketDetailPage() {
           premiumPass: "Premium pass",
           chainEvent: "ChainTicket event",
           heroFallback:
-            "The pass view leads with confidence, then lets lifecycle proof live below instead of forcing blockchain language into the hero section.",
+            "A premium entry credential that reads in seconds, with deeper proof and metadata tucked away until needed.",
           livePass: "Live pass",
           collectibleMode: "Collectible",
           ticketMode: "Ticket mode",
@@ -372,6 +403,16 @@ export function TicketDetailPage() {
           statusLabel: "Status",
           manageResale: "Manage resale",
           passReady: "Pass ready",
+          passSnapshot: "Pass essentials",
+          passSnapshotSubtitle: "Only the information that matters right now.",
+          passDetailsTitle: "Pass details",
+          passDetailsSubtitle: "Open only when you want the full ticket breakdown.",
+          insuranceSubtitle: "Premium, policy, and payout tucked away from the main canvas.",
+          lifecycleAccordionSubtitle: "Mint, resale, and usage proof grouped into a quiet evidence layer.",
+          heroLiveCaption:
+            "Keep the screen clean: the artwork, QR, and status do the work while deeper details stay backstage.",
+          heroCollectibleCaption:
+            "The souvenir takes center stage while metadata and proof remain available on demand.",
           timelineLoadingTitle: "Loading timeline",
           lifecycleTitle: "Lifecycle proof",
           lifecycleSubtitle: "Mint, resale, usage, and metadata events grouped by phase instead of crowding the hero.",
@@ -440,23 +481,17 @@ export function TicketDetailPage() {
   return (
     <div className="route-stack ticket-detail-route detail-vault-route" data-testid="ticket-detail-page">
       <PageHeader
-        title={`${
-          selectedMetadata?.name ??
-          (collectibleId !== null ? "Collectible souvenir" : "Ticket pass")
-        } #${(collectibleId ?? tokenId).toString()}`}
-        subtitle={copy.subtitle}
+        title={headerTitle}
+        subtitle={[displayView === "collectible" ? copy.collectibleMode : copy.livePass, eventMoment, compactEventLocation].filter(Boolean).join(" | ")}
         workspace="tickets"
         context={
           <div className="inline-actions">
             {stateLabel ? <Tag tone={ticket?.used ? "warning" : ticket?.listed ? "info" : "success"}>{stateLabel}</Tag> : null}
-            {systemState?.collectibleMode ? <Tag tone="info">{copy.collectibleLive}</Tag> : null}
-            {collectibleReady ? <Tag tone="success">{copy.collectiblePreview}</Tag> : null}
             {collectibleQuery.data ? (
               <Tag tone="info">
                 {copy.collectibleLevelLabel} {collectibleQuery.data.level.toString()}
               </Tag>
             ) : null}
-            {ticket?.listed ? <Tag tone="warning">{copy.listedOnMarket}</Tag> : null}
           </div>
         }
         primaryAction={
@@ -485,32 +520,51 @@ export function TicketDetailPage() {
       ) : null}
 
       <section className="ticket-detail-shell">
-        <Panel className="ticket-detail-main-card" surface="glass">
+        <Panel className="ticket-detail-main-card ticket-detail-hero-shell" surface="glass">
           <div className="ticket-detail-pass-top">
-            <div>
+            <div className="ticket-detail-pass-intro">
               <p className="eyebrow">{copy.premiumPass}</p>
-              <h2>{selectedEventName || contractConfig.eventName || copy.chainEvent}</h2>
-              <p>{selectedMetadata?.description ?? copy.heroFallback}</p>
+              <h2>{heroTitle}</h2>
+              <div className="ticket-detail-hero-meta">
+                <span>{passHeadline}</span>
+                <span>{eventMoment}</span>
+                {compactEventLocation ? <span>{compactEventLocation}</span> : null}
+                <span>
+                  {collectibleId !== null
+                    ? `${copy.sourceTicketLabel} ${tokenLabel}`
+                    : `${copy.tokenLabel} ${tokenLabel}`}
+                </span>
+              </div>
+              <p className="ticket-detail-caption">
+                {displayView === "collectible" ? copy.heroCollectibleCaption : copy.heroLiveCaption}
+              </p>
             </div>
-            {preview?.liveTokenUri && preview?.collectibleTokenUri ? (
-              <SegmentedToggle<"live" | "collectible">
-                value={displayView}
-                onChange={(next) => {
-                  const nextParams = new URLSearchParams(searchParams);
-                  nextParams.set("view", next);
-                  setSearchParams(nextParams, { replace: true });
-                }}
-                options={[
-                  { value: "live", label: copy.livePass },
-                  { value: "collectible", label: copy.collectibleMode },
-                ]}
-                ariaLabel="Ticket pass preview mode"
-              />
-            ) : null}
+            <div className="ticket-detail-pass-controls">
+              {stateLabel ? (
+                <Tag tone={ticket?.used ? "warning" : ticket?.listed ? "info" : "success"}>
+                  {stateLabel}
+                </Tag>
+              ) : null}
+              {preview?.liveTokenUri && preview?.collectibleTokenUri ? (
+                <SegmentedToggle<"live" | "collectible">
+                  value={displayView}
+                  onChange={(next) => {
+                    const nextParams = new URLSearchParams(searchParams);
+                    nextParams.set("view", next);
+                    setSearchParams(nextParams, { replace: true });
+                  }}
+                  options={[
+                    { value: "live", label: copy.livePass },
+                    { value: "collectible", label: copy.collectibleMode },
+                  ]}
+                  ariaLabel="Ticket pass preview mode"
+                />
+              ) : null}
+            </div>
           </div>
 
           <div className="ticket-detail-pass-grid">
-            <Card className="ticket-detail-artwork-card" surface="accent">
+            <Card className="ticket-detail-artwork-card ticket-detail-stage-card" surface="accent">
               <TicketMedia
                 media={
                   selectedMedia ?? {
@@ -520,15 +574,16 @@ export function TicketDetailPage() {
                     alt:
                       collectibleId !== null
                         ? `Collectible #${collectibleId.toString()}`
-                        : `Ticket #${tokenId.toString()}`,
+                        : `Ticket ${tokenLabel}`,
                   }
                 }
                 fallbackTitle={selectedEventName || "ChainTicket admission"}
                 fallbackSubtitle={
                   collectibleId !== null
                     ? `Collectible #${collectibleId.toString()}`
-                    : `Token #${tokenId.toString()}`
+                    : `Token ${tokenLabel}`
                 }
+                fallbackEyebrow={displayView === "collectible" ? copy.collectibleMode : copy.livePass}
                 className="ticket-detail-media"
               />
               <div className="ticket-detail-media-meta">
@@ -540,23 +595,37 @@ export function TicketDetailPage() {
               </div>
             </Card>
 
-            <div className="ticket-detail-side sticky-stack">
+            <div className="ticket-detail-side ticket-detail-summary-stack sticky-stack">
               {selectedQrValue ? (
                 <TicketQrPanel
                   value={selectedQrValue}
                   title={copy.qrTitle}
                   subtitle={copy.qrSubtitle}
+                  className="ticket-detail-access-card"
                 />
               ) : null}
 
-              <Card className="ticket-detail-facts" surface="glass">
+              <Card className="ticket-detail-facts ticket-detail-summary-card" surface="glass">
+                <div className="ticket-detail-summary-head">
+                  <div>
+                    <p className="eyebrow">{copy.passSnapshot}</p>
+                    <h3>{passHeadline}</h3>
+                    <p>{copy.passSnapshotSubtitle}</p>
+                  </div>
+                  {collectibleQuery.data ? (
+                    <Tag tone="info">
+                      {copy.collectibleLevelLabel} {collectibleQuery.data.level.toString()}
+                    </Tag>
+                  ) : null}
+                </div>
                 <InfoList
                   entries={[
-                    { label: copy.tokenLabel, value: `#${tokenId.toString()}` },
                     {
-                      label: copy.collectibleIdLabel,
+                      label: copy.statusLabel,
                       value:
-                        collectibleId !== null ? `#${collectibleId.toString()}` : "-",
+                        collectibleQuery.data
+                          ? `${copy.collectibleMode} L${collectibleQuery.data.level.toString()}`
+                          : stateLabel ?? "-",
                     },
                     {
                       label: copy.ownerLabel,
@@ -567,10 +636,57 @@ export function TicketDetailPage() {
                           : "Timeline view",
                     },
                     {
+                      label: copy.listingLabel,
+                      value:
+                        ticket?.listed && ticket.listingPrice
+                          ? `${formatPol(ticket.listingPrice)} POL`
+                          : copy.notListed,
+                    },
+                  ]}
+                />
+                <div className="ticket-detail-side-actions">
+                  <Link
+                    to={
+                      ticket?.listed
+                        ? "/app/marketplace"
+                        : `/app/tickets/${tokenId.toString()}${collectibleReady ? "?view=collectible" : ""}`
+                    }
+                    className="button-link primary"
+                  >
+                    {ticket?.listed ? copy.manageResale : collectibleReady ? copy.collectiblePreview : copy.passReady}
+                  </Link>
+                </div>
+              </Card>
+            </div>
+          </div>
+
+          <div className="ticket-detail-accordion-grid">
+            <DetailAccordion
+              title={copy.passDetailsTitle}
+              subtitle={copy.passDetailsSubtitle}
+              className="ticket-detail-accordion"
+            >
+              <div className="ticket-detail-detail-grid">
+                <InfoList
+                  entries={[
+                    { label: copy.tokenLabel, value: tokenLabel },
+                    {
+                      label: copy.collectibleIdLabel,
+                      value: collectibleLabel ?? "-",
+                    },
+                    {
                       label: copy.sourceTicketLabel,
                       value: collectibleQuery.data
                         ? `#${collectibleQuery.data.sourceTicketId.toString()}`
-                        : `#${tokenId.toString()}`,
+                        : tokenLabel,
+                    },
+                    {
+                      label: copy.ownerLabel,
+                      value: collectibleQuery.data
+                        ? formatAddress(collectibleQuery.data.owner)
+                        : ticket
+                          ? formatAddress(ticket.owner)
+                          : "Timeline view",
                     },
                     {
                       label: copy.listingLabel,
@@ -595,24 +711,33 @@ export function TicketDetailPage() {
                     },
                   ]}
                 />
-                <div className="ticket-detail-side-actions">
-                  <Link
-                    to={
-                      ticket?.listed
-                        ? "/app/marketplace"
-                        : `/app/tickets/${tokenId.toString()}${collectibleReady ? "?view=collectible" : ""}`
-                    }
-                    className="button-link primary"
-                  >
-                    {ticket?.listed ? copy.manageResale : collectibleReady ? copy.collectiblePreview : copy.passReady}
-                  </Link>
+                <div className="ticket-detail-detail-stack">
+                  <div className="ticket-detail-attribute-grid">
+                    {getTicketPerks(locale).map((perk) => (
+                      <div key={perk} className="ticket-attribute-chip">
+                        <span>Perk</span>
+                        <strong>{perk}</strong>
+                      </div>
+                    ))}
+                    {(selectedMetadata?.attributes ?? []).map((attribute) => (
+                      <div key={`${attribute.traitType}-${attribute.value}`} className="ticket-attribute-chip">
+                        <span>{attribute.traitType}</span>
+                        <strong>{attribute.value}</strong>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </Card>
+              </div>
+            </DetailAccordion>
 
-              {coverageQuery.data?.supported ? (
-                <Card className="ticket-detail-facts" surface="glass">
+            {coverageQuery.data?.supported ? (
+              <DetailAccordion
+                title={copy.insuranceTitle}
+                subtitle={copy.insuranceSubtitle}
+                className="ticket-detail-accordion"
+              >
+                <div className="ticket-detail-insurance-card">
                   <div className="inline-actions">
-                    <h3>{copy.insuranceTitle}</h3>
                     <Tag
                       tone={
                         coverageQuery.data.claimed
@@ -652,81 +777,67 @@ export function TicketDetailPage() {
                       </button>
                     </div>
                   ) : null}
-                </Card>
-              ) : null}
-            </div>
-          </div>
+                </div>
+              </DetailAccordion>
+            ) : null}
 
-          <div className="ticket-detail-attribute-grid">
-            {getTicketPerks(locale).map((perk) => (
-              <div key={perk} className="ticket-attribute-chip">
-                <span>Perk</span>
-                <strong>{perk}</strong>
-              </div>
-            ))}
-            {(selectedMetadata?.attributes ?? []).slice(0, 5).map((attribute) => (
-              <div key={`${attribute.traitType}-${attribute.value}`} className="ticket-attribute-chip">
-                <span>{attribute.traitType}</span>
-                <strong>{attribute.value}</strong>
-              </div>
-            ))}
+            <DetailAccordion
+              title={copy.lifecycleTitle}
+              subtitle={copy.lifecycleAccordionSubtitle}
+              className="ticket-detail-accordion"
+            >
+              {timelineQuery.isLoading ? (
+                <p className="ticket-detail-muted-copy">{copy.timelineLoadingTitle}</p>
+              ) : (timelineQuery.data?.length ?? 0) === 0 ? (
+                <div className="ticket-detail-empty-inline">
+                  <p>{t("emptyTimelineReason")}</p>
+                  <Link to="/app/tickets" className="button-link ghost">
+                    {t("myTicketsTitle")}
+                  </Link>
+                </div>
+              ) : (
+                <div className="ticket-detail-lifecycle-stack">
+                  {grouped.length > 0 ? (
+                    <section className="phase-summary">
+                      <p className="ticket-detail-muted-copy">{copy.lifecycleSubtitle}</p>
+                      <div className="phase-summary-chips">
+                        {grouped.map(([phase, entries]) => (
+                          <Tag key={phase} tone="info" className="phase-chip">
+                            {phase}: {entries.length}
+                          </Tag>
+                        ))}
+                      </div>
+                    </section>
+                  ) : null}
+
+                  <section className="timeline-list">
+                    {(timelineQuery.data ?? []).map((entry) => (
+                      <Card key={entry.id} className="timeline-item" surface="quiet">
+                        <div className="timeline-marker" aria-hidden="true" />
+                        <div className="timeline-content">
+                          <header>
+                            <h3>{timelineLabel(entry.kind)}</h3>
+                            <div className="inline-actions">
+                              <Badge tone={phaseBadgeTone(entry)}>{phaseBadgeLabel(entry, locale)}</Badge>
+                              <Badge tone="info">
+                                {entry.timestamp ? formatTimestamp(entry.timestamp * 1000) : `Block ${entry.blockNumber}`}
+                              </Badge>
+                            </div>
+                          </header>
+                          <p>{entry.description}</p>
+                          <a href={`${contractConfig.explorerTxBaseUrl}${entry.txHash}`} target="_blank" rel="noreferrer">
+                            {formatAddress(entry.txHash, 8)}
+                          </a>
+                        </div>
+                      </Card>
+                    ))}
+                  </section>
+                </div>
+              )}
+            </DetailAccordion>
           </div>
         </Panel>
       </section>
-
-      {timelineQuery.isLoading ? <EmptyState title={copy.timelineLoadingTitle} description={t("timelineLoading")} /> : null}
-      {!timelineQuery.isLoading && (timelineQuery.data?.length ?? 0) === 0 ? (
-        <EmptyState
-          title={t("emptyTimelineTitle")}
-          description={t("emptyTimelineReason")}
-          action={
-            <Link to="/app/tickets" className="button-link ghost">
-              {t("myTicketsTitle")}
-            </Link>
-          }
-        />
-      ) : null}
-
-      <Panel className="primary-panel" surface="glass">
-        {grouped.length > 0 ? (
-          <section className="phase-summary">
-            <SectionHeader
-              title={copy.lifecycleTitle}
-              subtitle={copy.lifecycleSubtitle}
-            />
-            <div className="phase-summary-chips">
-              {grouped.map(([phase, entries]) => (
-                <Tag key={phase} tone="info" className="phase-chip">
-                  {phase}: {entries.length}
-                </Tag>
-              ))}
-            </div>
-          </section>
-        ) : null}
-
-        <section className="timeline-list">
-          {(timelineQuery.data ?? []).map((entry) => (
-            <Card key={entry.id} className="timeline-item" surface="quiet">
-              <div className="timeline-marker" aria-hidden="true" />
-              <div className="timeline-content">
-                <header>
-                  <h3>{timelineLabel(entry.kind)}</h3>
-                  <div className="inline-actions">
-                    <Badge tone={phaseBadgeTone(entry)}>{phaseBadgeLabel(entry, locale)}</Badge>
-                    <Badge tone="info">
-                      {entry.timestamp ? formatTimestamp(entry.timestamp * 1000) : `Block ${entry.blockNumber}`}
-                    </Badge>
-                  </div>
-                </header>
-                <p>{entry.description}</p>
-                <a href={`${contractConfig.explorerTxBaseUrl}${entry.txHash}`} target="_blank" rel="noreferrer">
-                  {formatAddress(entry.txHash, 8)}
-                </a>
-              </div>
-            </Card>
-          ))}
-        </section>
-      </Panel>
     </div>
   );
 }
