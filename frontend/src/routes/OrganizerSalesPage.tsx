@@ -25,7 +25,13 @@ function percentageDelta(primaryPrice: bigint | null, resalePrice: bigint | null
 
 export function OrganizerSalesPage() {
   const { locale } = useI18n();
-  const { listings, marketStats, systemState, indexedReadsAvailable } = useAppState();
+  const {
+    listings,
+    marketStats,
+    systemState,
+    remoteIndexedReadsAvailable,
+    usingOnchainReadFallback,
+  } = useAppState();
 
   const copy =
     locale === "fr"
@@ -86,8 +92,8 @@ export function OrganizerSalesPage() {
         workspace="organizer"
         context={
           <div className="inline-actions">
-            <Tag tone={indexedReadsAvailable ? "success" : "warning"}>
-              {indexedReadsAvailable ? copy.indexed : copy.fallback}
+            <Tag tone={remoteIndexedReadsAvailable ? "success" : "warning"}>
+              {remoteIndexedReadsAvailable ? copy.indexed : copy.fallback}
             </Tag>
             <Tag tone="info">{listings.length} listing(s)</Tag>
           </div>
@@ -123,7 +129,7 @@ export function OrganizerSalesPage() {
 
       <Panel className="ops-sales-panel" surface="glass">
         <SectionHeader title={copy.listingTitle} subtitle={copy.listingSubtitle} />
-        {!indexedReadsAvailable && listings.length === 0 ? (
+        {!remoteIndexedReadsAvailable && !usingOnchainReadFallback && listings.length === 0 ? (
           <EmptyState title={copy.emptyTitle} description={copy.emptyDescription} />
         ) : null}
 

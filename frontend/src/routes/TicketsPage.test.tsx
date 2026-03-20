@@ -20,8 +20,9 @@ function makeAppState(overrides: Record<string, unknown> = {}) {
     refreshDashboard: vi.fn(),
     uiMode: "advanced",
     connectWallet: vi.fn(),
-    indexedReadsAvailable: false,
-    indexedReadsIssue: "Indexer has not caught up past deployment block 100.",
+    indexedReadsAvailable: true,
+    indexedReadsIssue: null,
+    usingOnchainReadFallback: true,
     runtimeConfig: {
       apiBaseUrl: "http://localhost:8787",
     },
@@ -53,7 +54,7 @@ function makeAppState(overrides: Record<string, unknown> = {}) {
 }
 
 describe("TicketsPage", () => {
-  it("shows a fallback-read warning instead of an empty inventory message when the BFF is not ready", () => {
+  it("keeps the wallet empty state visible when direct chain fallback is active", () => {
     window.localStorage.setItem("chainticket.language", "en");
     useAppStateMock.mockReturnValue(makeAppState());
 
@@ -67,11 +68,8 @@ describe("TicketsPage", () => {
       </QueryClientProvider>,
     );
 
-    expect(screen.getByText("Indexed enrichments delayed")).toBeInTheDocument();
-    expect(
-      screen.getByText(/passes still load from direct chain reads/i),
-    ).toBeInTheDocument();
-    expect(screen.queryByText("You do not own any tickets yet.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Indexed enrichments delayed")).not.toBeInTheDocument();
+    expect(screen.getByText("No passes in this wallet")).toBeInTheDocument();
   });
 
   it("keeps rendering owned passes while indexed reads are degraded", () => {

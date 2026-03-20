@@ -1,11 +1,12 @@
 import { EventEmitter } from "node:events";
 
-import { Contract, JsonRpcProvider } from "ethers";
+import { Contract, Interface, JsonRpcProvider } from "ethers";
 import type { PoolClient } from "pg";
 
 import { CHECKIN_ABI, FACTORY_ABI, MARKETPLACE_ABI, TICKET_NFT_ABI } from "./abi.js";
 import { config } from "./config.js";
 import {
+  type EventDeploymentRow,
   getChainStateNumber,
   getChainStateString,
   getEventDeployments,
@@ -16,6 +17,7 @@ import {
   upsertEventDeployment,
   withTransaction,
 } from "./db.js";
+import { readFactoryDeployment } from "./factoryCatalog.js";
 import { logger } from "./logger.js";
 import type {
   ChainEventPayload,
@@ -28,6 +30,12 @@ import type {
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const DEPLOYMENT_SYNC_TTL_MS = 30_000;
 const SYSTEM_STATE_CACHE_TTL_MS = 20_000;
+const TRACKED_DEPLOYMENT_IDS_KEY = "tracked_deployment_ids";
+const LOG_QUERY_ADDRESS_CHUNK_SIZE = 20;
+
+const ticketInterface = new Interface(TICKET_NFT_ABI);
+const marketplaceInterface = new Interface(MARKETPLACE_ABI);
+const checkInInterface = new Interface(CHECKIN_ABI);
 
 interface MetadataRefreshTrigger {
   ticketEventId: string;
@@ -46,6 +54,29 @@ interface ContractSet {
 
 interface IndexedOperationalActivity extends OperationalActivity {
   contractScope: ContractScope;
+}
+
+interface ParsedChainLog {
+  ticketEventId: string;
+  blockNumber: number;
+  logIndex: number;
+  txHash: string;
+  args: unknown[];
+}
+
+interface ContractAddressIndex {
+  ticket: Map<string, ContractSet>;
+  marketplace: Map<string, ContractSet>;
+  checkin: Map<string, ContractSet>;
+}
+
+interface ActiveDemoDeploymentIdRow {
+  ticket_event_id: string;
+}
+
+interface IndexedEventCoverageRow {
+  ticket_event_id: string;
+  max_block: string | null;
 }
 
 export interface IndexerStatus {
@@ -101,36 +132,6 @@ function tokenStateKey(ticketEventId: string, tokenId: string): string {
   return `${ticketEventId}::${tokenId}`;
 }
 
-function asLogIndex(value: unknown): number {
-  if (typeof value === "number") {
-    return value;
-  }
-  return Number(value ?? 0);
-}
-
-function getArgs(log: unknown): unknown[] {
-  const candidate = log as { args?: unknown };
-  if (Array.isArray(candidate.args)) {
-    return [...candidate.args];
-  }
-  return [];
-}
-
-function getBlockNumber(log: unknown): number {
-  const candidate = log as { blockNumber?: number };
-  return Number(candidate.blockNumber ?? 0);
-}
-
-function getTxHash(log: unknown): string {
-  const candidate = log as { transactionHash?: string };
-  return String(candidate.transactionHash ?? "");
-}
-
-function getLogIndex(log: unknown): number {
-  const candidate = log as { index?: number; logIndex?: number };
-  return asLogIndex(candidate.index ?? candidate.logIndex ?? 0);
-}
-
 function normalizeErrorMessage(error: unknown): string {
   if (typeof error === "string") {
     return error;
@@ -172,7 +173,20 @@ function isRateLimitError(error: unknown): boolean {
     message.includes("rate limit") ||
     message.includes("too many requests") ||
     message.includes("1015") ||
-    message.includes("exceeded maximum retry limit")
+    message.includes("exceeded maximum retry limit") ||
+    message.includes("block range exceeds configured limit") ||
+    message.includes("exceeds configured limit")
+  );
+}
+
+function isTransientRpcError(error: unknown): boolean {
+  const message = normalizeErrorMessage(error).toLowerCase();
+  return (
+    isRateLimitError(error) ||
+    message.includes("temporary internal error") ||
+    message.includes("wrong json-rpc response") ||
+    message.includes("incorrect response body") ||
+    message.includes("timeout")
   );
 }
 
@@ -184,38 +198,6 @@ function serializePayload(value: unknown): string {
   return JSON.stringify(value, (_key, entry) =>
     typeof entry === "bigint" ? entry.toString() : entry,
   );
-}
-
-function parseFactoryDeployment(raw: unknown): TicketEventDeployment {
-  const value = raw as {
-    eventId?: unknown;
-    name?: unknown;
-    symbol?: unknown;
-    primaryPrice?: unknown;
-    maxSupply?: unknown;
-    treasury?: unknown;
-    admin?: unknown;
-    ticketNFT?: unknown;
-    marketplace?: unknown;
-    checkInRegistry?: unknown;
-    deploymentBlock?: unknown;
-    registeredAt?: unknown;
-  } & unknown[];
-
-  return {
-    ticketEventId: String(value.eventId ?? value[0] ?? ""),
-    name: String(value.name ?? value[1] ?? ""),
-    symbol: String(value.symbol ?? value[2] ?? ""),
-    primaryPriceWei: String(value.primaryPrice ?? value[3] ?? "0"),
-    maxSupply: String(value.maxSupply ?? value[4] ?? "0"),
-    treasury: String(value.treasury ?? value[5] ?? ""),
-    admin: String(value.admin ?? value[6] ?? ""),
-    ticketNftAddress: String(value.ticketNFT ?? value[7] ?? ""),
-    marketplaceAddress: String(value.marketplace ?? value[8] ?? ""),
-    checkInRegistryAddress: String(value.checkInRegistry ?? value[9] ?? ""),
-    deploymentBlock: Number(value.deploymentBlock ?? value[10] ?? 0),
-    registeredAt: Number(value.registeredAt ?? value[11] ?? 0),
-  };
 }
 
 export class ChainIndexer extends EventEmitter {
@@ -249,7 +231,9 @@ export class ChainIndexer extends EventEmitter {
 
   constructor() {
     super();
-    this.provider = new JsonRpcProvider(config.rpcUrl, config.chainId);
+    this.provider = new JsonRpcProvider(config.rpcUrl, config.chainId, {
+      batchMaxCount: 1,
+    });
     this.factoryContract = config.factoryAddress
       ? new Contract(config.factoryAddress, FACTORY_ABI, this.provider)
       : null;
@@ -559,31 +543,207 @@ export class ChainIndexer extends EventEmitter {
     return minimumIndexedBlock;
   }
 
-  private async fetchDeployments(): Promise<TicketEventDeployment[]> {
-    if (!this.factoryContract) {
-      return [this.createLegacyDeployment()];
-    }
+  private persistedRowToDeployment(
+    persisted: EventDeploymentRow,
+  ): TicketEventDeployment {
+    return {
+      ticketEventId: persisted.ticket_event_id,
+      name: persisted.name,
+      symbol: persisted.symbol,
+      primaryPriceWei: persisted.primary_price_wei,
+      maxSupply: persisted.max_supply,
+      treasury: persisted.treasury,
+      admin: persisted.admin,
+      ticketNftAddress: persisted.ticket_nft_address,
+      marketplaceAddress: persisted.marketplace_address,
+      checkInRegistryAddress: persisted.checkin_registry_address,
+      deploymentBlock: Number(persisted.deployment_block),
+      registeredAt: Number(persisted.registered_at),
+    };
+  }
 
-    const totalEvents = Number(await this.factoryContract.totalEvents());
-    if (totalEvents === 0) {
+  private async loadActiveDemoDeployments(): Promise<TicketEventDeployment[]> {
+    const [activeDemoResult, persistedDeployments] = await Promise.all([
+      pool.query<ActiveDemoDeploymentIdRow>(
+        `
+          SELECT DISTINCT ticket_event_id
+          FROM demo_event_catalog
+          WHERE lineup_status = 'active'
+        `,
+      ),
+      getEventDeployments(),
+    ]);
+
+    if (activeDemoResult.rows.length === 0) {
       return [];
     }
 
-    const rawDeployments = await Promise.all(
-      Array.from({ length: totalEvents }, async (_value, index) =>
-        this.factoryContract?.getEventAt(index),
-      ),
+    const activeIds = new Set(activeDemoResult.rows.map((row) => row.ticket_event_id));
+    return persistedDeployments
+      .filter((deployment) => activeIds.has(deployment.ticket_event_id))
+      .map((deployment) => this.persistedRowToDeployment(deployment));
+  }
+
+  private async loadFactoryDeployments(): Promise<TicketEventDeployment[]> {
+    if (!this.factoryContract || !config.factoryAddress) {
+      return [];
+    }
+
+    const totalEvents = Number(await this.factoryContract.totalEvents());
+    return totalEvents === 0
+      ? []
+      : Promise.all(
+          Array.from({ length: totalEvents }, async (_value, index) =>
+            readFactoryDeployment(this.provider, config.factoryAddress!, "getEventAt", index),
+          ),
+        );
+  }
+
+  private mergeDeployments(
+    factoryDeployments: TicketEventDeployment[],
+    activeDemoDeployments: TicketEventDeployment[],
+  ): TicketEventDeployment[] {
+    const deploymentsById = new Map<string, TicketEventDeployment>();
+    for (const deployment of factoryDeployments) {
+      if (deployment) {
+        deploymentsById.set(deployment.ticketEventId, deployment);
+      }
+    }
+    for (const deployment of activeDemoDeployments) {
+      if (!deploymentsById.has(deployment.ticketEventId)) {
+        deploymentsById.set(deployment.ticketEventId, deployment);
+      }
+    }
+
+    return [...deploymentsById.values()].sort((left, right) => {
+      if (left.deploymentBlock !== right.deploymentBlock) {
+        return left.deploymentBlock - right.deploymentBlock;
+      }
+      return left.ticketEventId.localeCompare(right.ticketEventId);
+    });
+  }
+
+  private async fetchDeployments(options?: {
+    factoryDeployments?: TicketEventDeployment[];
+    activeDemoDeployments?: TicketEventDeployment[];
+  }): Promise<TicketEventDeployment[]> {
+    const [factoryDeployments, activeDemoDeployments] = await Promise.all([
+      options?.factoryDeployments
+        ? Promise.resolve(options.factoryDeployments)
+        : this.loadFactoryDeployments(),
+      options?.activeDemoDeployments
+        ? Promise.resolve(options.activeDemoDeployments)
+        : this.loadActiveDemoDeployments(),
+    ]);
+
+    if (!this.factoryContract || !config.factoryAddress) {
+      return activeDemoDeployments.length > 0
+        ? activeDemoDeployments
+        : [this.createLegacyDeployment()];
+    }
+
+    return this.mergeDeployments(factoryDeployments, activeDemoDeployments);
+  }
+
+  private async loadPreviouslyTrackedDeploymentIds(
+    factoryDeployments: TicketEventDeployment[],
+  ): Promise<Set<string>> {
+    const stored = await getChainStateString(TRACKED_DEPLOYMENT_IDS_KEY);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored) as unknown;
+        if (Array.isArray(parsed)) {
+          return new Set(
+            parsed
+              .map((value) => String(value).trim())
+              .filter((value) => value.length > 0),
+          );
+        }
+      } catch (error) {
+        logger.warn(
+          {
+            error,
+            trackedDeploymentIds: stored,
+          },
+          "Unable to parse tracked deployment catalog, falling back to legacy baseline.",
+        );
+      }
+    }
+
+    if (config.factoryAddress) {
+      return new Set(factoryDeployments.map((deployment) => deployment.ticketEventId));
+    }
+
+    return new Set(this.contractSets.keys());
+  }
+
+  private async loadIndexedEventCoverage(
+    ticketEventIds: string[],
+  ): Promise<Map<string, number | null>> {
+    if (ticketEventIds.length === 0) {
+      return new Map();
+    }
+
+    const result = await pool.query<IndexedEventCoverageRow>(
+      `
+        SELECT tracked.ticket_event_id, coverage.max_block
+        FROM UNNEST($1::text[]) AS tracked(ticket_event_id)
+        LEFT JOIN (
+          SELECT
+            ticket_event_id,
+            MAX(block_number)::bigint::text AS max_block
+          FROM indexed_event_log
+          WHERE ticket_event_id = ANY($1::text[])
+          GROUP BY ticket_event_id
+        ) AS coverage
+          ON coverage.ticket_event_id = tracked.ticket_event_id
+      `,
+      [ticketEventIds],
     );
 
-    return rawDeployments
-      .filter((deployment): deployment is NonNullable<typeof deployment> => Boolean(deployment))
-      .map((deployment) => parseFactoryDeployment(deployment))
-      .sort((left, right) => {
-        if (left.deploymentBlock !== right.deploymentBlock) {
-          return left.deploymentBlock - right.deploymentBlock;
-        }
-        return left.ticketEventId.localeCompare(right.ticketEventId);
-      });
+    return new Map(
+      result.rows.map((row) => [
+        row.ticket_event_id,
+        row.max_block === null ? null : Number(row.max_block),
+      ]),
+    );
+  }
+
+  private async resolveHistoricalBackfillStart(
+    deployment: TicketEventDeployment,
+    lastIndexed: number,
+    indexedCoverageBlock: number | null,
+  ): Promise<number | null> {
+    if (lastIndexed < deployment.deploymentBlock) {
+      return null;
+    }
+
+    if (indexedCoverageBlock !== null) {
+      if (indexedCoverageBlock >= lastIndexed) {
+        return null;
+      }
+      return Math.max(deployment.deploymentBlock, indexedCoverageBlock + 1);
+    }
+
+    const contractSet = this.contractSets.get(deployment.ticketEventId);
+    const ticketContract =
+      contractSet?.ticketContract ??
+      new Contract(deployment.ticketNftAddress, TICKET_NFT_ABI, this.provider);
+
+    try {
+      const totalMinted = toBigInt(await ticketContract.totalMinted());
+      return totalMinted > 0n ? deployment.deploymentBlock : null;
+    } catch (error) {
+      logger.warn(
+        {
+          error,
+          ticketEventId: deployment.ticketEventId,
+          ticketNftAddress: deployment.ticketNftAddress,
+        },
+        "Unable to determine historical mint coverage for deployment, rewinding defensively.",
+      );
+      return deployment.deploymentBlock;
+    }
   }
 
   private async syncEventDeployments(force = false): Promise<void> {
@@ -596,7 +756,14 @@ export class ChainIndexer extends EventEmitter {
       return;
     }
 
-    const deployments = await this.fetchDeployments();
+    const [factoryDeployments, activeDemoDeployments] = await Promise.all([
+      this.loadFactoryDeployments(),
+      this.loadActiveDemoDeployments(),
+    ]);
+    const deployments = await this.fetchDeployments({
+      factoryDeployments,
+      activeDemoDeployments,
+    });
     if (deployments.length === 0) {
       this.contractSets.clear();
       this.cachedSystemStates.clear();
@@ -612,9 +779,27 @@ export class ChainIndexer extends EventEmitter {
       ...deployments.map((deployment) => deployment.deploymentBlock),
     );
     const lastIndexed = await getChainStateNumber("last_indexed_block", deploymentFloor - 1);
+    const [previouslyTrackedIds, indexedCoverage] = await Promise.all([
+      this.loadPreviouslyTrackedDeploymentIds(factoryDeployments),
+      this.loadIndexedEventCoverage(deployments.map((deployment) => deployment.ticketEventId)),
+    ]);
 
     let rewindFromBlock: number | null = null;
     for (const deployment of deployments) {
+      if (!previouslyTrackedIds.has(deployment.ticketEventId)) {
+        const rewindCandidate = await this.resolveHistoricalBackfillStart(
+          deployment,
+          lastIndexed,
+          indexedCoverage.get(deployment.ticketEventId) ?? null,
+        );
+        if (rewindCandidate !== null) {
+          rewindFromBlock =
+            rewindFromBlock === null
+              ? rewindCandidate
+              : Math.min(rewindFromBlock, rewindCandidate);
+        }
+      }
+
       const persisted = persistedById.get(deployment.ticketEventId);
       if (!persisted) {
         if (lastIndexed >= deployment.deploymentBlock) {
@@ -671,6 +856,11 @@ export class ChainIndexer extends EventEmitter {
           registered_at: String(deployment.registeredAt),
         });
       }
+      await setChainStateString(
+        client,
+        TRACKED_DEPLOYMENT_IDS_KEY,
+        JSON.stringify(deployments.map((deployment) => deployment.ticketEventId)),
+      );
     });
 
     const nextContractSets = new Map<string, ContractSet>();
@@ -894,14 +1084,306 @@ export class ChainIndexer extends EventEmitter {
     logger.debug(payload, "Indexer processed empty block range.");
   }
 
-  private async collectEvents(fromBlock: number, toBlock: number): Promise<IndexedEvent[]> {
-    const resultSets = await Promise.all(
-      [...this.contractSets.values()].map((contractSet) =>
-        this.collectEventsForContractSet(contractSet, fromBlock, toBlock),
-      ),
-    );
+  private buildContractAddressIndex(): ContractAddressIndex {
+    const index: ContractAddressIndex = {
+      ticket: new Map(),
+      marketplace: new Map(),
+      checkin: new Map(),
+    };
 
-    const sorted = resultSets.flat().sort((left, right) => {
+    for (const contractSet of this.contractSets.values()) {
+      index.ticket.set(
+        normalizeAddress(contractSet.deployment.ticketNftAddress),
+        contractSet,
+      );
+      index.marketplace.set(
+        normalizeAddress(contractSet.deployment.marketplaceAddress),
+        contractSet,
+      );
+      index.checkin.set(
+        normalizeAddress(contractSet.deployment.checkInRegistryAddress),
+        contractSet,
+      );
+    }
+
+    return index;
+  }
+
+  private chunkAddresses(addresses: string[]): string[][] {
+    const uniqueAddresses = [...new Set(addresses.map((address) => normalizeAddress(address)))];
+    const chunks: string[][] = [];
+
+    for (let index = 0; index < uniqueAddresses.length; index += LOG_QUERY_ADDRESS_CHUNK_SIZE) {
+      chunks.push(uniqueAddresses.slice(index, index + LOG_QUERY_ADDRESS_CHUNK_SIZE));
+    }
+
+    return chunks;
+  }
+
+  private async queryLogsByAddresses(input: {
+    addresses: string[];
+    eventInterface: Interface;
+    eventName: string;
+    fromBlock: number;
+    toBlock: number;
+    contract: "ticket" | "marketplace" | "checkin";
+    resolveContractSet: (address: string) => ContractSet | undefined;
+  }): Promise<ParsedChainLog[]> {
+    if (input.addresses.length === 0 || input.fromBlock > input.toBlock) {
+      return [];
+    }
+
+    const eventFragment = input.eventInterface.getEvent(input.eventName);
+    if (!eventFragment) {
+      throw new Error(`Unknown event fragment: ${input.eventName}`);
+    }
+    const chunks = this.chunkAddresses(input.addresses);
+    const results: ParsedChainLog[] = [];
+
+    for (const addressChunk of chunks) {
+      let attempt = 0;
+
+      while (true) {
+        try {
+          const logs = await this.provider.getLogs({
+            address: addressChunk,
+            fromBlock: input.fromBlock,
+            toBlock: input.toBlock,
+            topics: [eventFragment.topicHash],
+          });
+
+          for (const log of logs) {
+            const contractSet = input.resolveContractSet(normalizeAddress(log.address));
+            if (!contractSet) {
+              continue;
+            }
+
+            let parsedLog;
+            try {
+              parsedLog = input.eventInterface.parseLog(log);
+            } catch (error) {
+              logger.warn(
+                {
+                  address: log.address,
+                  contract: input.contract,
+                  event: input.eventName,
+                  error: normalizeErrorMessage(error),
+                },
+                "Skipping log that could not be parsed.",
+              );
+              continue;
+            }
+
+            if (!parsedLog) {
+              continue;
+            }
+
+            results.push({
+              ticketEventId: contractSet.deployment.ticketEventId,
+              blockNumber: Number(log.blockNumber),
+              logIndex: Number(log.index),
+              txHash: String(log.transactionHash),
+              args: [...parsedLog.args],
+            });
+          }
+          break;
+        } catch (error) {
+          attempt += 1;
+          if (attempt >= 3 || !isTransientRpcError(error)) {
+            throw error;
+          }
+
+          const delayMs = 300 * attempt + randomJitter(250);
+          logger.warn(
+            {
+              attempt,
+              delayMs,
+              fromBlock: input.fromBlock,
+              toBlock: input.toBlock,
+              contract: input.contract,
+              event: input.eventName,
+              addressCount: addressChunk.length,
+              error: normalizeErrorMessage(error),
+            },
+            "Transient RPC log query failed, retrying.",
+          );
+          await sleep(delayMs);
+        }
+      }
+    }
+
+    return results.sort((left, right) => {
+      if (left.blockNumber !== right.blockNumber) {
+        return left.blockNumber - right.blockNumber;
+      }
+      return left.logIndex - right.logIndex;
+    });
+  }
+
+  private async collectEvents(fromBlock: number, toBlock: number): Promise<IndexedEvent[]> {
+    const addressIndex = this.buildContractAddressIndex();
+    const ticketAddresses = [...addressIndex.ticket.keys()];
+    const marketplaceAddresses = [...addressIndex.marketplace.keys()];
+    const checkInAddresses = [...addressIndex.checkin.keys()];
+
+    const [
+      transferLogs,
+      listedLogs,
+      cancelledLogs,
+      soldLogs,
+      usedLogs,
+      collectibleLogs,
+    ] = await Promise.all([
+      this.queryLogsByAddresses({
+        addresses: ticketAddresses,
+        eventInterface: ticketInterface,
+        eventName: "Transfer",
+        fromBlock,
+        toBlock,
+        contract: "ticket",
+        resolveContractSet: (address) => addressIndex.ticket.get(address),
+      }),
+      this.queryLogsByAddresses({
+        addresses: marketplaceAddresses,
+        eventInterface: marketplaceInterface,
+        eventName: "Listed",
+        fromBlock,
+        toBlock,
+        contract: "marketplace",
+        resolveContractSet: (address) => addressIndex.marketplace.get(address),
+      }),
+      this.queryLogsByAddresses({
+        addresses: marketplaceAddresses,
+        eventInterface: marketplaceInterface,
+        eventName: "Cancelled",
+        fromBlock,
+        toBlock,
+        contract: "marketplace",
+        resolveContractSet: (address) => addressIndex.marketplace.get(address),
+      }),
+      this.queryLogsByAddresses({
+        addresses: marketplaceAddresses,
+        eventInterface: marketplaceInterface,
+        eventName: "Sold",
+        fromBlock,
+        toBlock,
+        contract: "marketplace",
+        resolveContractSet: (address) => addressIndex.marketplace.get(address),
+      }),
+      this.queryLogsByAddresses({
+        addresses: checkInAddresses,
+        eventInterface: checkInInterface,
+        eventName: "TicketMarkedUsed",
+        fromBlock,
+        toBlock,
+        contract: "checkin",
+        resolveContractSet: (address) => addressIndex.checkin.get(address),
+      }),
+      this.queryLogsByAddresses({
+        addresses: ticketAddresses,
+        eventInterface: ticketInterface,
+        eventName: "CollectibleModeUpdated",
+        fromBlock,
+        toBlock,
+        contract: "ticket",
+        resolveContractSet: (address) => addressIndex.ticket.get(address),
+      }),
+    ]);
+
+    const events: IndexedEvent[] = [];
+
+    for (const log of transferLogs) {
+      const fromAddress = String(log.args[0] ?? ZERO_ADDRESS);
+      const toAddress = String(log.args[1] ?? ZERO_ADDRESS);
+      const tokenId = toBigInt(log.args[2] ?? 0n);
+      events.push({
+        id: eventId(log.ticketEventId, log.txHash, log.logIndex, "transfer"),
+        ticketEventId: log.ticketEventId,
+        type: "transfer",
+        tokenId,
+        from: normalizeAddress(fromAddress),
+        to: normalizeAddress(toAddress),
+        blockNumber: log.blockNumber,
+        logIndex: log.logIndex,
+        txHash: log.txHash,
+        timestamp: null,
+      });
+    }
+
+    for (const log of listedLogs) {
+      events.push({
+        id: eventId(log.ticketEventId, log.txHash, log.logIndex, "listed"),
+        ticketEventId: log.ticketEventId,
+        type: "listed",
+        tokenId: toBigInt(log.args[0] ?? 0n),
+        seller: normalizeAddress(String(log.args[1] ?? ZERO_ADDRESS)),
+        price: toBigInt(log.args[2] ?? 0n),
+        blockNumber: log.blockNumber,
+        logIndex: log.logIndex,
+        txHash: log.txHash,
+        timestamp: null,
+      });
+    }
+
+    for (const log of cancelledLogs) {
+      events.push({
+        id: eventId(log.ticketEventId, log.txHash, log.logIndex, "cancelled"),
+        ticketEventId: log.ticketEventId,
+        type: "cancelled",
+        tokenId: toBigInt(log.args[0] ?? 0n),
+        actor: normalizeAddress(String(log.args[1] ?? ZERO_ADDRESS)),
+        blockNumber: log.blockNumber,
+        logIndex: log.logIndex,
+        txHash: log.txHash,
+        timestamp: null,
+      });
+    }
+
+    for (const log of soldLogs) {
+      events.push({
+        id: eventId(log.ticketEventId, log.txHash, log.logIndex, "sold"),
+        ticketEventId: log.ticketEventId,
+        type: "sold",
+        tokenId: toBigInt(log.args[0] ?? 0n),
+        seller: normalizeAddress(String(log.args[1] ?? ZERO_ADDRESS)),
+        buyer: normalizeAddress(String(log.args[2] ?? ZERO_ADDRESS)),
+        price: toBigInt(log.args[3] ?? 0n),
+        feeAmount: toBigInt(log.args[4] ?? 0n),
+        blockNumber: log.blockNumber,
+        logIndex: log.logIndex,
+        txHash: log.txHash,
+        timestamp: null,
+      });
+    }
+
+    for (const log of usedLogs) {
+      events.push({
+        id: eventId(log.ticketEventId, log.txHash, log.logIndex, "used"),
+        ticketEventId: log.ticketEventId,
+        type: "used",
+        tokenId: toBigInt(log.args[0] ?? 0n),
+        scanner: normalizeAddress(String(log.args[1] ?? ZERO_ADDRESS)),
+        blockNumber: log.blockNumber,
+        logIndex: log.logIndex,
+        txHash: log.txHash,
+        timestamp: null,
+      });
+    }
+
+    for (const log of collectibleLogs) {
+      events.push({
+        id: eventId(log.ticketEventId, log.txHash, log.logIndex, "collectible_mode"),
+        ticketEventId: log.ticketEventId,
+        type: "collectible_mode",
+        enabled: Boolean(log.args[0]),
+        blockNumber: log.blockNumber,
+        logIndex: log.logIndex,
+        txHash: log.txHash,
+        timestamp: null,
+      });
+    }
+
+    const sorted = events.sort((left, right) => {
       if (left.blockNumber !== right.blockNumber) {
         return left.blockNumber - right.blockNumber;
       }
@@ -923,193 +1405,141 @@ export class ChainIndexer extends EventEmitter {
     return sorted;
   }
 
-  private async collectEventsForContractSet(
-    contractSet: ContractSet,
-    fromBlock: number,
-    toBlock: number,
-  ): Promise<IndexedEvent[]> {
-    const from = Math.max(fromBlock, contractSet.deployment.deploymentBlock);
-    if (from > toBlock) {
-      return [];
-    }
-
-    const [transferLogs, listedLogs, cancelledLogs, soldLogs, usedLogs, collectibleLogs] =
-      await Promise.all([
-        contractSet.ticketContract.queryFilter(
-          contractSet.ticketContract.filters.Transfer(),
-          from,
-          toBlock,
-        ),
-        contractSet.marketplaceContract.queryFilter(
-          contractSet.marketplaceContract.filters.Listed(),
-          from,
-          toBlock,
-        ),
-        contractSet.marketplaceContract.queryFilter(
-          contractSet.marketplaceContract.filters.Cancelled(),
-          from,
-          toBlock,
-        ),
-        contractSet.marketplaceContract.queryFilter(
-          contractSet.marketplaceContract.filters.Sold(),
-          from,
-          toBlock,
-        ),
-        contractSet.checkInContract.queryFilter(
-          contractSet.checkInContract.filters.TicketMarkedUsed(),
-          from,
-          toBlock,
-        ),
-        contractSet.ticketContract.queryFilter(
-          contractSet.ticketContract.filters.CollectibleModeUpdated(),
-          from,
-          toBlock,
-        ),
-      ]);
-
-    const events: IndexedEvent[] = [];
-
-    for (const log of transferLogs) {
-      const args = getArgs(log);
-      const fromAddress = String(args?.[0] ?? ZERO_ADDRESS);
-      const toAddress = String(args?.[1] ?? ZERO_ADDRESS);
-      const tokenId = toBigInt(args?.[2] ?? 0n);
-      events.push({
-        id: eventId(
-          contractSet.deployment.ticketEventId,
-          getTxHash(log),
-          getLogIndex(log),
-          "transfer",
-        ),
-        ticketEventId: contractSet.deployment.ticketEventId,
-        type: "transfer",
-        tokenId,
-        from: normalizeAddress(fromAddress),
-        to: normalizeAddress(toAddress),
-        blockNumber: getBlockNumber(log),
-        logIndex: getLogIndex(log),
-        txHash: getTxHash(log),
-        timestamp: null,
-      });
-    }
-
-    for (const log of listedLogs) {
-      const args = getArgs(log);
-      events.push({
-        id: eventId(
-          contractSet.deployment.ticketEventId,
-          getTxHash(log),
-          getLogIndex(log),
-          "listed",
-        ),
-        ticketEventId: contractSet.deployment.ticketEventId,
-        type: "listed",
-        tokenId: toBigInt(args?.[0] ?? 0n),
-        seller: normalizeAddress(String(args?.[1] ?? ZERO_ADDRESS)),
-        price: toBigInt(args?.[2] ?? 0n),
-        blockNumber: getBlockNumber(log),
-        logIndex: getLogIndex(log),
-        txHash: getTxHash(log),
-        timestamp: null,
-      });
-    }
-
-    for (const log of cancelledLogs) {
-      const args = getArgs(log);
-      events.push({
-        id: eventId(
-          contractSet.deployment.ticketEventId,
-          getTxHash(log),
-          getLogIndex(log),
-          "cancelled",
-        ),
-        ticketEventId: contractSet.deployment.ticketEventId,
-        type: "cancelled",
-        tokenId: toBigInt(args?.[0] ?? 0n),
-        actor: normalizeAddress(String(args?.[1] ?? ZERO_ADDRESS)),
-        blockNumber: getBlockNumber(log),
-        logIndex: getLogIndex(log),
-        txHash: getTxHash(log),
-        timestamp: null,
-      });
-    }
-
-    for (const log of soldLogs) {
-      const args = getArgs(log);
-      events.push({
-        id: eventId(
-          contractSet.deployment.ticketEventId,
-          getTxHash(log),
-          getLogIndex(log),
-          "sold",
-        ),
-        ticketEventId: contractSet.deployment.ticketEventId,
-        type: "sold",
-        tokenId: toBigInt(args?.[0] ?? 0n),
-        seller: normalizeAddress(String(args?.[1] ?? ZERO_ADDRESS)),
-        buyer: normalizeAddress(String(args?.[2] ?? ZERO_ADDRESS)),
-        price: toBigInt(args?.[3] ?? 0n),
-        feeAmount: toBigInt(args?.[4] ?? 0n),
-        blockNumber: getBlockNumber(log),
-        logIndex: getLogIndex(log),
-        txHash: getTxHash(log),
-        timestamp: null,
-      });
-    }
-
-    for (const log of usedLogs) {
-      const args = getArgs(log);
-      events.push({
-        id: eventId(
-          contractSet.deployment.ticketEventId,
-          getTxHash(log),
-          getLogIndex(log),
-          "used",
-        ),
-        ticketEventId: contractSet.deployment.ticketEventId,
-        type: "used",
-        tokenId: toBigInt(args?.[0] ?? 0n),
-        scanner: normalizeAddress(String(args?.[1] ?? ZERO_ADDRESS)),
-        blockNumber: getBlockNumber(log),
-        logIndex: getLogIndex(log),
-        txHash: getTxHash(log),
-        timestamp: null,
-      });
-    }
-
-    for (const log of collectibleLogs) {
-      const args = getArgs(log);
-      events.push({
-        id: eventId(
-          contractSet.deployment.ticketEventId,
-          getTxHash(log),
-          getLogIndex(log),
-          "collectible_mode",
-        ),
-        ticketEventId: contractSet.deployment.ticketEventId,
-        type: "collectible_mode",
-        enabled: Boolean(args?.[0]),
-        blockNumber: getBlockNumber(log),
-        logIndex: getLogIndex(log),
-        txHash: getTxHash(log),
-        timestamp: null,
-      });
-    }
-
-    return events;
-  }
-
   private async collectOperationalActivities(
     fromBlock: number,
     toBlock: number,
   ): Promise<IndexedOperationalActivity[]> {
-    const resultSets = await Promise.all(
-      [...this.contractSets.values()].map((contractSet) =>
-        this.collectOperationalActivitiesForContractSet(contractSet, fromBlock, toBlock),
-      ),
-    );
+    const addressIndex = this.buildContractAddressIndex();
+    const ticketAddresses = [...addressIndex.ticket.keys()];
+    const checkInAddresses = [...addressIndex.checkin.keys()];
 
-    const sorted = resultSets.flat().sort((left, right) => {
+    const [
+      pausedLogs,
+      unpausedLogs,
+      ticketRoleGrantedLogs,
+      ticketRoleRevokedLogs,
+      checkInRoleGrantedLogs,
+      checkInRoleRevokedLogs,
+    ] = await Promise.all([
+      this.queryLogsByAddresses({
+        addresses: ticketAddresses,
+        eventInterface: ticketInterface,
+        eventName: "Paused",
+        fromBlock,
+        toBlock,
+        contract: "ticket",
+        resolveContractSet: (address) => addressIndex.ticket.get(address),
+      }),
+      this.queryLogsByAddresses({
+        addresses: ticketAddresses,
+        eventInterface: ticketInterface,
+        eventName: "Unpaused",
+        fromBlock,
+        toBlock,
+        contract: "ticket",
+        resolveContractSet: (address) => addressIndex.ticket.get(address),
+      }),
+      this.queryLogsByAddresses({
+        addresses: ticketAddresses,
+        eventInterface: ticketInterface,
+        eventName: "RoleGranted",
+        fromBlock,
+        toBlock,
+        contract: "ticket",
+        resolveContractSet: (address) => addressIndex.ticket.get(address),
+      }),
+      this.queryLogsByAddresses({
+        addresses: ticketAddresses,
+        eventInterface: ticketInterface,
+        eventName: "RoleRevoked",
+        fromBlock,
+        toBlock,
+        contract: "ticket",
+        resolveContractSet: (address) => addressIndex.ticket.get(address),
+      }),
+      this.queryLogsByAddresses({
+        addresses: checkInAddresses,
+        eventInterface: checkInInterface,
+        eventName: "RoleGranted",
+        fromBlock,
+        toBlock,
+        contract: "checkin",
+        resolveContractSet: (address) => addressIndex.checkin.get(address),
+      }),
+      this.queryLogsByAddresses({
+        addresses: checkInAddresses,
+        eventInterface: checkInInterface,
+        eventName: "RoleRevoked",
+        fromBlock,
+        toBlock,
+        contract: "checkin",
+        resolveContractSet: (address) => addressIndex.checkin.get(address),
+      }),
+    ]);
+
+    const activities: IndexedOperationalActivity[] = [];
+
+    const pushRoleActivities = (
+      logs: ParsedChainLog[],
+      contractScope: ContractScope,
+      type: "role_granted" | "role_revoked",
+    ) => {
+      for (const log of logs) {
+        activities.push({
+          id: eventId(
+            log.ticketEventId,
+            log.txHash,
+            log.logIndex,
+            `${contractScope}:${type}`,
+          ),
+          ticketEventId: log.ticketEventId,
+          contractScope,
+          type,
+          roleId: String(log.args[0] ?? ""),
+          account: normalizeAddress(String(log.args[1] ?? ZERO_ADDRESS)),
+          actor: normalizeAddress(String(log.args[2] ?? ZERO_ADDRESS)),
+          blockNumber: log.blockNumber,
+          logIndex: log.logIndex,
+          txHash: log.txHash,
+          timestamp: null,
+        });
+      }
+    };
+
+    for (const log of pausedLogs) {
+      activities.push({
+        id: eventId(log.ticketEventId, log.txHash, log.logIndex, "ticket:paused"),
+        ticketEventId: log.ticketEventId,
+        contractScope: "ticket",
+        type: "paused",
+        actor: normalizeAddress(String(log.args[0] ?? ZERO_ADDRESS)),
+        blockNumber: log.blockNumber,
+        logIndex: log.logIndex,
+        txHash: log.txHash,
+        timestamp: null,
+      });
+    }
+
+    for (const log of unpausedLogs) {
+      activities.push({
+        id: eventId(log.ticketEventId, log.txHash, log.logIndex, "ticket:unpaused"),
+        ticketEventId: log.ticketEventId,
+        contractScope: "ticket",
+        type: "unpaused",
+        actor: normalizeAddress(String(log.args[0] ?? ZERO_ADDRESS)),
+        blockNumber: log.blockNumber,
+        logIndex: log.logIndex,
+        txHash: log.txHash,
+        timestamp: null,
+      });
+    }
+
+    pushRoleActivities(ticketRoleGrantedLogs, "ticket", "role_granted");
+    pushRoleActivities(ticketRoleRevokedLogs, "ticket", "role_revoked");
+    pushRoleActivities(checkInRoleGrantedLogs, "checkin_registry", "role_granted");
+    pushRoleActivities(checkInRoleRevokedLogs, "checkin_registry", "role_revoked");
+
+    const sorted = activities.sort((left, right) => {
       if (left.blockNumber !== right.blockNumber) {
         return left.blockNumber - right.blockNumber;
       }
@@ -1131,192 +1561,62 @@ export class ChainIndexer extends EventEmitter {
     return sorted;
   }
 
-  private async collectOperationalActivitiesForContractSet(
-    contractSet: ContractSet,
-    fromBlock: number,
-    toBlock: number,
-  ): Promise<IndexedOperationalActivity[]> {
-    const from = Math.max(fromBlock, contractSet.deployment.deploymentBlock);
-    if (from > toBlock) {
-      return [];
-    }
-
-    const [pausedLogs, unpausedLogs, ticketRoleGrantedLogs, ticketRoleRevokedLogs, checkInRoleGrantedLogs, checkInRoleRevokedLogs] =
-      await Promise.all([
-        contractSet.ticketContract.queryFilter(
-          contractSet.ticketContract.filters.Paused(),
-          from,
-          toBlock,
-        ),
-        contractSet.ticketContract.queryFilter(
-          contractSet.ticketContract.filters.Unpaused(),
-          from,
-          toBlock,
-        ),
-        contractSet.ticketContract.queryFilter(
-          contractSet.ticketContract.filters.RoleGranted(),
-          from,
-          toBlock,
-        ),
-        contractSet.ticketContract.queryFilter(
-          contractSet.ticketContract.filters.RoleRevoked(),
-          from,
-          toBlock,
-        ),
-        contractSet.checkInContract.queryFilter(
-          contractSet.checkInContract.filters.RoleGranted(),
-          from,
-          toBlock,
-        ),
-        contractSet.checkInContract.queryFilter(
-          contractSet.checkInContract.filters.RoleRevoked(),
-          from,
-          toBlock,
-        ),
-      ]);
-
-    const activities: IndexedOperationalActivity[] = [];
-
-    const pushRoleActivities = (
-      logs: unknown[],
-      contractScope: ContractScope,
-      type: "role_granted" | "role_revoked",
-    ) => {
-      for (const log of logs) {
-        const args = getArgs(log);
-        activities.push({
-          id: eventId(
-            contractSet.deployment.ticketEventId,
-            getTxHash(log),
-            getLogIndex(log),
-            `${contractScope}:${type}`,
-          ),
-          ticketEventId: contractSet.deployment.ticketEventId,
-          contractScope,
-          type,
-          roleId: String(args?.[0] ?? ""),
-          account: normalizeAddress(String(args?.[1] ?? ZERO_ADDRESS)),
-          actor: normalizeAddress(String(args?.[2] ?? ZERO_ADDRESS)),
-          blockNumber: getBlockNumber(log),
-          logIndex: getLogIndex(log),
-          txHash: getTxHash(log),
-          timestamp: null,
-        });
-      }
-    };
-
-    for (const log of pausedLogs) {
-      const args = getArgs(log);
-      activities.push({
-        id: eventId(
-          contractSet.deployment.ticketEventId,
-          getTxHash(log),
-          getLogIndex(log),
-          "ticket:paused",
-        ),
-        ticketEventId: contractSet.deployment.ticketEventId,
-        contractScope: "ticket",
-        type: "paused",
-        actor: normalizeAddress(String(args?.[0] ?? ZERO_ADDRESS)),
-        blockNumber: getBlockNumber(log),
-        logIndex: getLogIndex(log),
-        txHash: getTxHash(log),
-        timestamp: null,
-      });
-    }
-
-    for (const log of unpausedLogs) {
-      const args = getArgs(log);
-      activities.push({
-        id: eventId(
-          contractSet.deployment.ticketEventId,
-          getTxHash(log),
-          getLogIndex(log),
-          "ticket:unpaused",
-        ),
-        ticketEventId: contractSet.deployment.ticketEventId,
-        contractScope: "ticket",
-        type: "unpaused",
-        actor: normalizeAddress(String(args?.[0] ?? ZERO_ADDRESS)),
-        blockNumber: getBlockNumber(log),
-        logIndex: getLogIndex(log),
-        txHash: getTxHash(log),
-        timestamp: null,
-      });
-    }
-
-    pushRoleActivities(ticketRoleGrantedLogs, "ticket", "role_granted");
-    pushRoleActivities(ticketRoleRevokedLogs, "ticket", "role_revoked");
-    pushRoleActivities(checkInRoleGrantedLogs, "checkin_registry", "role_granted");
-    pushRoleActivities(checkInRoleRevokedLogs, "checkin_registry", "role_revoked");
-
-    return activities;
-  }
-
   private async collectMetadataRefreshes(
     fromBlock: number,
     toBlock: number,
   ): Promise<MetadataRefreshTrigger[]> {
-    const refreshSets = await Promise.all(
-      [...this.contractSets.values()].map((contractSet) =>
-        this.collectMetadataRefreshesForContractSet(contractSet, fromBlock, toBlock),
-      ),
-    );
-
-    return refreshSets.flat().sort((left, right) => {
-      if (left.blockNumber !== right.blockNumber) {
-        return left.blockNumber - right.blockNumber;
-      }
-      return left.logIndex - right.logIndex;
-    });
-  }
-
-  private async collectMetadataRefreshesForContractSet(
-    contractSet: ContractSet,
-    fromBlock: number,
-    toBlock: number,
-  ): Promise<MetadataRefreshTrigger[]> {
-    const from = Math.max(fromBlock, contractSet.deployment.deploymentBlock);
-    if (from > toBlock) {
-      return [];
-    }
+    const addressIndex = this.buildContractAddressIndex();
+    const ticketAddresses = [...addressIndex.ticket.keys()];
 
     const [collectibleLogs, baseUriLogs] = await Promise.all([
-      contractSet.ticketContract.queryFilter(
-        contractSet.ticketContract.filters.CollectibleModeUpdated(),
-        from,
+      this.queryLogsByAddresses({
+        addresses: ticketAddresses,
+        eventInterface: ticketInterface,
+        eventName: "CollectibleModeUpdated",
+        fromBlock,
         toBlock,
-      ),
-      contractSet.ticketContract.queryFilter(
-        contractSet.ticketContract.filters.BaseUrisUpdated(),
-        from,
+        contract: "ticket",
+        resolveContractSet: (address) => addressIndex.ticket.get(address),
+      }),
+      this.queryLogsByAddresses({
+        addresses: ticketAddresses,
+        eventInterface: ticketInterface,
+        eventName: "BaseUrisUpdated",
+        fromBlock,
         toBlock,
-      ),
+        contract: "ticket",
+        resolveContractSet: (address) => addressIndex.ticket.get(address),
+      }),
     ]);
 
     const refreshes: MetadataRefreshTrigger[] = [];
 
     for (const log of collectibleLogs) {
       refreshes.push({
-        ticketEventId: contractSet.deployment.ticketEventId,
-        blockNumber: getBlockNumber(log),
-        logIndex: getLogIndex(log),
-        txHash: getTxHash(log),
+        ticketEventId: log.ticketEventId,
+        blockNumber: log.blockNumber,
+        logIndex: log.logIndex,
+        txHash: log.txHash,
         reason: "collectible_mode",
       });
     }
 
     for (const log of baseUriLogs) {
       refreshes.push({
-        ticketEventId: contractSet.deployment.ticketEventId,
-        blockNumber: getBlockNumber(log),
-        logIndex: getLogIndex(log),
-        txHash: getTxHash(log),
+        ticketEventId: log.ticketEventId,
+        blockNumber: log.blockNumber,
+        logIndex: log.logIndex,
+        txHash: log.txHash,
         reason: "base_uris",
       });
     }
 
-    return refreshes;
+    return refreshes.sort((left, right) => {
+      if (left.blockNumber !== right.blockNumber) {
+        return left.blockNumber - right.blockNumber;
+      }
+      return left.logIndex - right.logIndex;
+    });
   }
 
   private async loadTokenUris(events: IndexedEvent[]): Promise<Map<string, string>> {

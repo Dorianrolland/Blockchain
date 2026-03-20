@@ -112,24 +112,27 @@ export function createChainTicketClientFromBindings(
 
   const getMyTickets = async (owner: string): Promise<TicketView[]> => {
     const normalizedOwner = normalizeAddress(owner);
-    const transfers = await bindings.ticket.queryTransferEvents(normalizedOwner, config.deploymentBlock);
-
-    const ownedIds = new Set<string>();
-    for (const event of transfers) {
-      const tokenKey = event.tokenId.toString();
-
-      if (sameAddress(event.to, normalizedOwner)) {
-        ownedIds.add(tokenKey);
-      }
-
-      if (sameAddress(event.from, normalizedOwner)) {
-        ownedIds.delete(tokenKey);
-      }
+    const totalMinted = await bindings.ticket.totalMinted();
+    if (totalMinted <= 0n) {
+      return [];
     }
 
-    const tokenIds = Array.from(ownedIds.values(), (tokenString) => BigInt(tokenString)).sort(
-      (left, right) => (left < right ? -1 : left > right ? 1 : 0),
+    const totalMintedCount = Number(totalMinted);
+    const ownedTokenIds = await Promise.all(
+      Array.from({ length: totalMintedCount }, async (_value, index) => {
+        const tokenId = BigInt(index);
+        try {
+          const ownerAddress = await bindings.ticket.ownerOf(tokenId);
+          return sameAddress(ownerAddress, normalizedOwner) ? tokenId : null;
+        } catch {
+          return null;
+        }
+      }),
     );
+
+    const tokenIds = ownedTokenIds
+      .filter((tokenId): tokenId is bigint => tokenId !== null)
+      .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
 
     const ticketDetails = await Promise.all(
       tokenIds.map(async (tokenId): Promise<TicketView | null> => {

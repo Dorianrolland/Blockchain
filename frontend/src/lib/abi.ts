@@ -58,5 +58,4 @@ export const CHECK_IN_REGISTRY_ABI = [
 
 export const CHAIN_TICKET_FACTORY_ABI = [
   "function totalEvents() view returns (uint256)",
-  "function getEventAt(uint256 index) view returns ((string eventId,string name,string symbol,uint256 primaryPrice,uint256 maxSupply,address treasury,address admin,address ticketNFT,address marketplace,address checkInRegistry,uint256 deploymentBlock,uint256 registeredAt))",
 ] as const;

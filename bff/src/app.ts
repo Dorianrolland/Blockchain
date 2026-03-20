@@ -7,6 +7,7 @@ import helmet from "helmet";
 import { FACTORY_ABI } from "./abi.js";
 import { config } from "./config.js";
 import { mergeDemoCatalogEntries } from "./demoCatalog.js";
+import { readFactoryDeployment } from "./factoryCatalog.js";
 import {
   buildDemoTicketMetadata,
   buildDemoTicketSvg,
@@ -204,38 +205,6 @@ function timelineKind(row: { event_type: string; actor_from: string | null }):
   return "collectible";
 }
 
-function parseFactoryDeployment(raw: unknown): TicketEventDeployment {
-  const value = raw as {
-    eventId?: unknown;
-    name?: unknown;
-    symbol?: unknown;
-    primaryPrice?: unknown;
-    maxSupply?: unknown;
-    treasury?: unknown;
-    admin?: unknown;
-    ticketNFT?: unknown;
-    marketplace?: unknown;
-    checkInRegistry?: unknown;
-    deploymentBlock?: unknown;
-    registeredAt?: unknown;
-  } & unknown[];
-
-  return {
-    ticketEventId: String(value.eventId ?? value[0] ?? ""),
-    name: String(value.name ?? value[1] ?? ""),
-    symbol: String(value.symbol ?? value[2] ?? ""),
-    primaryPriceWei: String(value.primaryPrice ?? value[3] ?? "0"),
-    maxSupply: String(value.maxSupply ?? value[4] ?? "0"),
-    treasury: String(value.treasury ?? value[5] ?? ""),
-    admin: String(value.admin ?? value[6] ?? ""),
-    ticketNftAddress: String(value.ticketNFT ?? value[7] ?? ""),
-    marketplaceAddress: String(value.marketplace ?? value[8] ?? ""),
-    checkInRegistryAddress: String(value.checkInRegistry ?? value[9] ?? ""),
-    deploymentBlock: Number(value.deploymentBlock ?? value[10] ?? 0),
-    registeredAt: Number(value.registeredAt ?? value[11] ?? 0),
-  };
-}
-
 export function createApp(indexer: ChainIndexer) {
   const app = express();
   const allowedOrigins = new Set(config.corsOrigins);
@@ -245,7 +214,9 @@ export function createApp(indexer: ChainIndexer) {
     "/v1/events",
     "/v1/events/stream",
   ]);
-  const catalogProvider = new JsonRpcProvider(config.rpcUrl, config.chainId);
+  const catalogProvider = new JsonRpcProvider(config.rpcUrl, config.chainId, {
+    batchMaxCount: 1,
+  });
   const factoryContract = config.factoryAddress
     ? new Contract(config.factoryAddress, FACTORY_ABI, catalogProvider)
     : null;
@@ -256,17 +227,17 @@ export function createApp(indexer: ChainIndexer) {
   const systemStateCache = new Map<string, { value: SystemStatePayload; cachedAt: number }>();
 
   const getFactoryCatalog = async (): Promise<TicketEventDeployment[]> => {
-    if (!factoryContract) {
+    if (!factoryContract || !config.factoryAddress) {
       return [];
     }
 
     const totalEvents = Number(await factoryContract.totalEvents());
     const rawDeployments = await Promise.all(
       Array.from({ length: totalEvents }, async (_value, index) =>
-        factoryContract.getEventAt(index),
+        readFactoryDeployment(catalogProvider, config.factoryAddress!, "getEventAt", index),
       ),
     );
-    return rawDeployments.map((raw) => parseFactoryDeployment(raw));
+    return rawDeployments;
   };
 
   const getEventCatalog = async (): Promise<TicketEventDeployment[]> => {

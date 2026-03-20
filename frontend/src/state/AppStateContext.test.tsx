@@ -108,6 +108,9 @@ function Probe() {
       <div data-testid="status-message">{state.statusMessage || "none"}</div>
       <div data-testid="error-message">{state.errorMessage || "none"}</div>
       <div data-testid="bff-mode">{state.bffMode}</div>
+      <div data-testid="remote-indexed">{String(state.remoteIndexedReadsAvailable)}</div>
+      <div data-testid="using-fallback">{String(state.usingOnchainReadFallback)}</div>
+      <div data-testid="indexed-issue">{state.indexedReadsIssue || "none"}</div>
       <div data-testid="tx-status">{state.txState.status}</div>
       <div data-testid="activity-count">{state.activity.length}</div>
       <div data-testid="ticket-count">{state.tickets.length}</div>
@@ -467,6 +470,9 @@ describe("AppStateProvider", () => {
     await waitFor(() => {
       expect(screen.getByTestId("ticket-count")).toHaveTextContent("1");
     });
+    expect(screen.getByTestId("remote-indexed")).toHaveTextContent("false");
+    expect(screen.getByTestId("using-fallback")).toHaveTextContent("true");
+    expect(screen.getByTestId("indexed-issue")).toHaveTextContent("none");
     expect(getSystemStateMock).toHaveBeenCalled();
     expect(getListingsMock).toHaveBeenCalled();
     expect(getMyTicketsMock).toHaveBeenCalled();
@@ -483,6 +489,8 @@ describe("AppStateProvider", () => {
     await waitFor(() => {
       expect(screen.getByTestId("bff-mode")).toHaveTextContent("online");
     });
+    expect(screen.getByTestId("remote-indexed")).toHaveTextContent("true");
+    expect(screen.getByTestId("using-fallback")).toHaveTextContent("false");
     expect(eventSourceUrls).toEqual(["http://localhost:8787/v1/events/stream?eventId=main-event"]);
   });
 

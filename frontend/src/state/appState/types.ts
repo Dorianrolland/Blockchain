@@ -48,7 +48,9 @@ export interface AppStateContextValue {
   selectedEventName: string;
   bffSupportsSelectedEvent: boolean;
   bffHealth: BackendHealthSnapshot | null;
+  remoteIndexedReadsAvailable: boolean;
   indexedReadsAvailable: boolean;
+  usingOnchainReadFallback: boolean;
   indexedReadsIssue: string | null;
   hasValidConfig: boolean;
   configIssues: string[];

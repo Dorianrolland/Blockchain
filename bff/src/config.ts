@@ -55,7 +55,7 @@ const schema = z.object({
       message: "Invalid CHECKIN_REGISTRY_ADDRESS",
     }),
   INDEXER_BATCH_SIZE: z.coerce.number().int().positive().default(500),
-  INDEXER_MIN_BATCH_SIZE: z.coerce.number().int().positive().default(60),
+  INDEXER_MIN_BATCH_SIZE: z.coerce.number().int().positive().default(10),
   INDEXER_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(8000),
   INDEXER_INTER_BATCH_DELAY_MS: z.coerce.number().int().nonnegative().default(500),
   INDEXER_CONFIRMATIONS: z.coerce.number().int().nonnegative().default(0),

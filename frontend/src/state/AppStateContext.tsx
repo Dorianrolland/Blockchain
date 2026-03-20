@@ -209,7 +209,9 @@ export function AppStateProvider({
   const {
     bffMode,
     bffHealth,
+    remoteIndexedReadsAvailable,
     indexedReadsAvailable,
+    usingOnchainReadFallback,
     indexedReadsIssue,
     refetchBffHealth,
     fetchWithFallback,
@@ -327,7 +329,7 @@ export function AppStateProvider({
         return [];
       }
 
-      if (bffClient && indexedReadsAvailable) {
+      if (bffClient && remoteIndexedReadsAvailable) {
         return fetchWithFallback(
           bffSupportsSelectedEvent
             ? () => bffClient.getTicketTimeline(tokenId, selectedEvent.ticketEventId)
@@ -349,7 +351,7 @@ export function AppStateProvider({
       bffClient,
       bffSupportsSelectedEvent,
       fetchWithFallback,
-      indexedReadsAvailable,
+      remoteIndexedReadsAvailable,
       readClient,
       selectedEvent.ticketEventId,
     ],
@@ -380,7 +382,9 @@ export function AppStateProvider({
       selectedEventName: selectedEvent.name,
       bffSupportsSelectedEvent,
       bffHealth,
+      remoteIndexedReadsAvailable,
       indexedReadsAvailable,
+      usingOnchainReadFallback,
       indexedReadsIssue,
       hasValidConfig,
       configIssues,
@@ -446,6 +450,7 @@ export function AppStateProvider({
       errorMessage,
       fetchTicketTimeline,
       hasValidConfig,
+      remoteIndexedReadsAvailable,
       indexedReadsAvailable,
       indexedReadsIssue,
       isConnecting,
@@ -480,6 +485,7 @@ export function AppStateProvider({
       ticketsQuery.isLoading,
       toggleWatch,
       txState,
+      usingOnchainReadFallback,
       onboardingSeen,
       uiMode,
       userRoles,

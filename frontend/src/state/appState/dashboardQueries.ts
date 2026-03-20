@@ -27,7 +27,9 @@ interface DashboardQueriesArgs {
 interface DashboardQueriesResult {
   bffMode: BffMode;
   bffHealth: BackendHealthSnapshot | null;
+  remoteIndexedReadsAvailable: boolean;
   indexedReadsAvailable: boolean;
+  usingOnchainReadFallback: boolean;
   indexedReadsIssue: string | null;
   refetchBffHealth: () => Promise<void>;
   fetchWithFallback: <T>(fromBff: (() => Promise<T>) | null, fromRpc: () => Promise<T>) => Promise<T>;
@@ -81,9 +83,18 @@ export function useDashboardQueries({
     }
     return bffHealth.readModelReady ? "online" : "degraded";
   }, [bffClient, bffHealth, bffHealthQuery.isError, bffReadEnabled]);
-  const indexedReadsAvailable = !bffClient || (bffReadEnabled && bffHealth?.readModelReady === true);
+  const remoteIndexedReadsAvailable = Boolean(
+    bffClient && bffReadEnabled && bffHealth?.readModelReady === true,
+  );
+  const indexedReadsAvailable = !bffClient || remoteIndexedReadsAvailable || Boolean(readClient);
+  const usingOnchainReadFallback = Boolean(
+    bffClient && !remoteIndexedReadsAvailable && readClient,
+  );
   const indexedReadsIssue = useMemo(() => {
     if (!bffClient) {
+      return null;
+    }
+    if (readClient) {
       return null;
     }
     if (!bffReadEnabled) {
@@ -102,7 +113,7 @@ export function useDashboardQueries({
       );
     }
     return null;
-  }, [bffClient, bffHealth, bffHealthQuery.isError, bffReadEnabled]);
+  }, [bffClient, bffHealth, bffHealthQuery.isError, bffReadEnabled, readClient]);
   const canPollRemoteCatalog = Boolean(bffClient && bffReadEnabled && effectiveBffMode === "online");
   const canReadFromBff = Boolean(bffClient && bffReadEnabled);
   const canReadSystemFromBff = Boolean(bffClient && bffReadEnabled && effectiveBffMode === "online");
@@ -168,7 +179,7 @@ export function useDashboardQueries({
     retry: 0,
     refetchInterval: canPollRemoteCatalog ? 25_000 : false,
     queryFn: async () => {
-      if (hasConfiguredBff && bffClient && indexedReadsAvailable) {
+      if (hasConfiguredBff && bffClient && remoteIndexedReadsAvailable) {
         return fetchWithFallback(
           () =>
             bffClient.getListings({
@@ -207,7 +218,7 @@ export function useDashboardQueries({
     retry: 0,
     refetchInterval: canPollRemoteCatalog ? 25_000 : false,
     queryFn: async () => {
-      if (hasConfiguredBff && bffClient && indexedReadsAvailable) {
+      if (hasConfiguredBff && bffClient && remoteIndexedReadsAvailable) {
         return fetchWithFallback(
           () => bffClient.getMarketStats(contractConfig.eventId),
           () => {
@@ -248,7 +259,7 @@ export function useDashboardQueries({
         return [];
       }
 
-      if (hasConfiguredBff && bffClient && indexedReadsAvailable) {
+      if (hasConfiguredBff && bffClient && remoteIndexedReadsAvailable) {
         return fetchWithFallback(
           () => bffClient.getUserTickets(walletAddress, contractConfig.eventId),
           () => {
@@ -283,7 +294,9 @@ export function useDashboardQueries({
   return {
     bffMode: effectiveBffMode,
     bffHealth,
+    remoteIndexedReadsAvailable,
     indexedReadsAvailable,
+    usingOnchainReadFallback,
     indexedReadsIssue,
     refetchBffHealth: async () => {
       await bffHealthQuery.refetch();

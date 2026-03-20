@@ -1,3 +1,4 @@
+import { Interface } from "ethers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 function applyBffEnv(): void {
@@ -273,5 +274,238 @@ describe("ChainIndexer cursor reconciliation", () => {
     await indexer.start();
 
     expect(indexer.resetToBlock).toHaveBeenCalledWith(99);
+  });
+});
+
+describe("ChainIndexer deployment sources", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    applyBffEnv();
+    process.env.FACTORY_ADDRESS = "0x00000000000000000000000000000000000000F1";
+  });
+
+  it("merges active demo deployments stored in Postgres with the current factory catalog", async () => {
+    const activeDemoPoolQuery = vi.fn().mockResolvedValue({
+      rows: [{ ticket_event_id: "demo-fr-bruno-mars-20260618-cb053c" }],
+    });
+    const getEventDeploymentsMock = vi.fn().mockResolvedValue([
+      {
+        ticket_event_id: "demo-fr-bruno-mars-20260618-cb053c",
+        name: "Bruno Mars",
+        symbol: "CTK",
+        primary_price_wei: "100000000000000000",
+        max_supply: "100",
+        treasury: "0xF5653Efc3BCAC6Bdc83B7F9E0E3d19b54bAA7204",
+        admin: "0xF5653Efc3BCAC6Bdc83B7F9E0E3d19b54bAA7204",
+        ticket_nft_address: "0xD9C51916D00D1dcfB2F0e963FEb8f5EaDbb12cF3",
+        marketplace_address: "0x394Ba0cd1f7b916a26bb97101f224212eeef0925",
+        checkin_registry_address: "0x00000000000000000000000000000000000000C1",
+        deployment_block: "35254994",
+        registered_at: "1773637525",
+      },
+    ]);
+
+    vi.doMock("./db.js", async () => {
+      const actual = await vi.importActual<typeof import("./db.js")>("./db.js");
+      return {
+        ...actual,
+        getEventDeployments: getEventDeploymentsMock,
+        pool: {
+          query: activeDemoPoolQuery,
+        },
+      };
+    });
+
+    const factoryInterface = new Interface([
+      "function getEventAt(uint256 index) view returns ((string eventId,string name,string symbol,string artistId,string seriesId,uint256 primaryPrice,uint256 maxSupply,uint256 fanPassAllocationBps,uint256 artistRoyaltyBps,address treasury,address admin,address ticketNFT,address marketplace,address checkInRegistry,address collectibleContract,address fanScoreRegistry,address fanFuelBank,address insurancePool,address oracleAdapter,address merchStore,address perkManager,uint256 deploymentBlock,uint256 registeredAt))",
+    ]);
+    const encodedFactoryDeployment = factoryInterface.encodeFunctionResult("getEventAt", [[
+      "chainticket-upgrade-demo-20260317",
+      "ChainTicket Event",
+      "CTK",
+      "chainticket-demo-artist",
+      "founders-tour-2026",
+      100000000000000000n,
+      100n,
+      3000n,
+      500n,
+      "0xF5653Efc3BCAC6Bdc83B7F9E0E3d19b54bAA7204",
+      "0xF5653Efc3BCAC6Bdc83B7F9E0E3d19b54bAA7204",
+      "0xd4213d60832294182A4d5ce82D20538B565efc44",
+      "0x1f6EC1Aa94135d2F9B041550258864b4f6EC804d",
+      "0x6A36806a87DaE75D4A0523f551686cc3C4c08CAb",
+      "0xf66ea1420e5F2f12E99f48442786D46C2501bF87",
+      "0x04f94ebaE19311156b03635b0e572035F1f3C1BD",
+      "0x2756e4c83135d7B96371E314ca843D9b5aEef06B",
+      "0xE5FE07BEC7BDD12c81bE9C29C4AC6E23af016015",
+      "0x18CD133d4416C4E3c4E0075e5eB4AD41c2271412",
+      "0xD2Bf36dFE39842339f7B9ecb1512f1e9a6d290DF",
+      "0x2209B6BDF1d5bAdb5Ae853FFE802ebCe3302F1eA",
+      35309527n,
+      1773746591n,
+    ]]);
+
+    const { ChainIndexer } = await import("./indexer.js");
+    const indexer = new ChainIndexer() as unknown as {
+      provider: { call: (tx: { to: string; data: string }) => Promise<string> };
+      factoryContract: { totalEvents: () => Promise<bigint> };
+      fetchDeployments: () => Promise<Array<{ ticketEventId: string }>>;
+    };
+
+    indexer.provider = {
+      call: vi.fn().mockResolvedValue(encodedFactoryDeployment),
+    };
+    indexer.factoryContract = {
+      totalEvents: vi.fn().mockResolvedValue(1n),
+    };
+
+    const deployments = await indexer.fetchDeployments();
+
+    expect(deployments.map((deployment) => deployment.ticketEventId)).toEqual([
+      "demo-fr-bruno-mars-20260618-cb053c",
+      "chainticket-upgrade-demo-20260317",
+    ]);
+  });
+
+  it("rewinds the cursor when an active demo deployment is newly tracked with historical mints", async () => {
+    const poolQuery = vi.fn().mockImplementation(async (query: string) => {
+      if (query.includes("FROM demo_event_catalog")) {
+        return {
+          rows: [{ ticket_event_id: "demo-fr-bruno-mars-20260620-8804d3" }],
+        };
+      }
+
+      if (query.includes("FROM UNNEST")) {
+        return {
+          rows: [
+            {
+              ticket_event_id: "demo-fr-bruno-mars-20260620-8804d3",
+              max_block: null,
+            },
+            {
+              ticket_event_id: "chainticket-upgrade-demo-20260317",
+              max_block: "35402463",
+            },
+          ],
+        };
+      }
+
+      throw new Error(`Unexpected pool query: ${query}`);
+    });
+    const getEventDeploymentsMock = vi.fn().mockResolvedValue([
+      {
+        ticket_event_id: "demo-fr-bruno-mars-20260620-8804d3",
+        name: "Bruno Mars",
+        symbol: "CTK",
+        primary_price_wei: "100000000000000000",
+        max_supply: "100",
+        treasury: "0xF5653Efc3BCAC6Bdc83B7F9E0E3d19b54bAA7204",
+        admin: "0xF5653Efc3BCAC6Bdc83B7F9E0E3d19b54bAA7204",
+        ticket_nft_address: "0xcC54c08aedEa32F5d81AFD0E811a0899D0eb43a0",
+        marketplace_address: "0x394Ba0cd1f7b916a26bb97101f224212eeef0925",
+        checkin_registry_address: "0x00000000000000000000000000000000000000C1",
+        deployment_block: "35255009",
+        registered_at: "1773637525",
+      },
+      {
+        ticket_event_id: "chainticket-upgrade-demo-20260317",
+        name: "ChainTicket Event",
+        symbol: "CTK",
+        primary_price_wei: "100000000000000000",
+        max_supply: "100",
+        treasury: "0xF5653Efc3BCAC6Bdc83B7F9E0E3d19b54bAA7204",
+        admin: "0xF5653Efc3BCAC6Bdc83B7F9E0E3d19b54bAA7204",
+        ticket_nft_address: "0xd4213d60832294182A4d5ce82D20538B565efc44",
+        marketplace_address: "0x1f6EC1Aa94135d2F9B041550258864b4f6EC804d",
+        checkin_registry_address: "0x6A36806a87DaE75D4A0523f551686cc3C4c08CAb",
+        deployment_block: "35309527",
+        registered_at: "1773746591",
+      },
+    ]);
+    const getChainStateNumberMock = vi.fn().mockResolvedValue(35402463);
+    const getChainStateStringMock = vi.fn().mockResolvedValue(null);
+    const setChainStateStringMock = vi.fn().mockResolvedValue(undefined);
+    const upsertEventDeploymentMock = vi.fn().mockResolvedValue(undefined);
+    const withTransactionMock = vi.fn(async (callback: (client: { query: () => Promise<void> }) => Promise<void>) => {
+      await callback({
+        query: vi.fn().mockResolvedValue(undefined),
+      });
+    });
+
+    vi.doMock("./db.js", async () => {
+      const actual = await vi.importActual<typeof import("./db.js")>("./db.js");
+      return {
+        ...actual,
+        getChainStateNumber: getChainStateNumberMock,
+        getChainStateString: getChainStateStringMock,
+        getEventDeployments: getEventDeploymentsMock,
+        setChainStateString: setChainStateStringMock,
+        upsertEventDeployment: upsertEventDeploymentMock,
+        withTransaction: withTransactionMock,
+        pool: {
+          query: poolQuery,
+        },
+      };
+    });
+
+    const factoryInterface = new Interface([
+      "function getEventAt(uint256 index) view returns ((string eventId,string name,string symbol,string artistId,string seriesId,uint256 primaryPrice,uint256 maxSupply,uint256 fanPassAllocationBps,uint256 artistRoyaltyBps,address treasury,address admin,address ticketNFT,address marketplace,address checkInRegistry,address collectibleContract,address fanScoreRegistry,address fanFuelBank,address insurancePool,address oracleAdapter,address merchStore,address perkManager,uint256 deploymentBlock,uint256 registeredAt))",
+    ]);
+    const ticketInterface = new Interface([
+      "function totalMinted() view returns (uint256)",
+    ]);
+    const encodedFactoryDeployment = factoryInterface.encodeFunctionResult("getEventAt", [[
+      "chainticket-upgrade-demo-20260317",
+      "ChainTicket Event",
+      "CTK",
+      "chainticket-demo-artist",
+      "founders-tour-2026",
+      100000000000000000n,
+      100n,
+      3000n,
+      500n,
+      "0xF5653Efc3BCAC6Bdc83B7F9E0E3d19b54bAA7204",
+      "0xF5653Efc3BCAC6Bdc83B7F9E0E3d19b54bAA7204",
+      "0xd4213d60832294182A4d5ce82D20538B565efc44",
+      "0x1f6EC1Aa94135d2F9B041550258864b4f6EC804d",
+      "0x6A36806a87DaE75D4A0523f551686cc3C4c08CAb",
+      "0xf66ea1420e5F2f12E99f48442786D46C2501bF87",
+      "0x04f94ebaE19311156b03635b0e572035F1f3C1BD",
+      "0x2756e4c83135d7B96371E314ca843D9b5aEef06B",
+      "0xE5FE07BEC7BDD12c81bE9C29C4AC6E23af016015",
+      "0x18CD133d4416C4E3c4E0075e5eB4AD41c2271412",
+      "0xD2Bf36dFE39842339f7B9ecb1512f1e9a6d290DF",
+      "0x2209B6BDF1d5bAdb5Ae853FFE802ebCe3302F1eA",
+      35309527n,
+      1773746591n,
+    ]]);
+    const encodedTotalMinted = ticketInterface.encodeFunctionResult("totalMinted", [2n]);
+    const totalMintedSelector = ticketInterface.getFunction("totalMinted")!.selector;
+
+    const { ChainIndexer } = await import("./indexer.js");
+    const indexer = new ChainIndexer() as unknown as {
+      provider: { call: (tx: { to: string; data: string }) => Promise<string> };
+      factoryContract: { totalEvents: () => Promise<bigint> };
+      resetToBlock: (lastIndexedBlock: number) => Promise<void>;
+      syncEventDeployments: (force?: boolean) => Promise<void>;
+    };
+
+    indexer.provider = {
+      call: vi.fn().mockImplementation(async (tx: { data: string }) => {
+        if (tx.data.startsWith(totalMintedSelector)) {
+          return encodedTotalMinted;
+        }
+        return encodedFactoryDeployment;
+      }),
+    };
+    indexer.factoryContract = {
+      totalEvents: vi.fn().mockResolvedValue(1n),
+    };
+    indexer.resetToBlock = vi.fn().mockResolvedValue(undefined);
+
+    await indexer.syncEventDeployments(true);
+
+    expect(indexer.resetToBlock).toHaveBeenCalledWith(35255008);
   });
 });

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { Contract, JsonRpcProvider } from "ethers";
 
 import { FACTORY_ABI } from "../abi.js";
+import { readFactoryDeployment } from "../factoryCatalog.js";
 process.env.BFF_RUNTIME_MODE ??= "deploy-only";
 
 const [
@@ -47,13 +48,8 @@ async function getRegisteredEventIds(factoryAddress: string): Promise<Set<string
   const totalEvents = Number(await factory.totalEvents());
   const eventIds = await Promise.all(
     Array.from({ length: totalEvents }, async (_value, index) => {
-      const deployment = await factory.getEventAt(index);
-      const eventId = String(
-        (deployment as { eventId?: unknown } & unknown[]).eventId ??
-          (deployment as unknown[])[0] ??
-          "",
-      );
-      return eventId;
+      const deployment = await readFactoryDeployment(provider, factoryAddress, "getEventAt", index);
+      return deployment.ticketEventId;
     }),
   );
   return new Set(eventIds);

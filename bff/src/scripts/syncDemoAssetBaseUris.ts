@@ -16,10 +16,11 @@ dotenv.config({
 
 const [
   { Contract, JsonRpcProvider, Wallet },
-  { FACTORY_ABI, TICKET_NFT_ABI },
+  { TICKET_NFT_ABI },
   { config },
   { buildDemoMetadataUri },
   { initDatabase, pool },
+  { readFactoryDeployment },
   { logger },
   { getDemoCatalogEntries },
 ] = await Promise.all([
@@ -28,6 +29,7 @@ const [
   import("../config.js"),
   import("../demoDeploy.js"),
   import("../db.js"),
+  import("../factoryCatalog.js"),
   import("../logger.js"),
   import("../repository.js"),
 ]);
@@ -42,13 +44,6 @@ function requiredEnv(name: string, fallback?: string | null): string {
 
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
-}
-
-function parseFactoryDeployment(raw: unknown): { ticketNFT: string } {
-  const value = raw as { ticketNFT?: unknown } & unknown[];
-  return {
-    ticketNFT: String(value.ticketNFT ?? value[7] ?? ""),
-  };
 }
 
 async function main(): Promise<void> {
@@ -70,15 +65,19 @@ async function main(): Promise<void> {
 
   const provider = new JsonRpcProvider(config.rpcUrl, config.chainId);
   const signer = new Wallet(privateKey, provider);
-  const factory = new Contract(factoryAddress, FACTORY_ABI, provider);
 
   for (const item of activeLineup) {
-    const deployment = parseFactoryDeployment(await factory.getEventById(item.ticketEventId));
-    if (!deployment.ticketNFT) {
+    const deployment = await readFactoryDeployment(
+      provider,
+      factoryAddress,
+      "getEventById",
+      item.ticketEventId,
+    );
+    if (!deployment.ticketNftAddress) {
       throw new Error(`Unable to resolve TicketNFT for demo event ${item.ticketEventId}.`);
     }
 
-    const ticketContract = new Contract(deployment.ticketNFT, TICKET_NFT_ABI, signer);
+    const ticketContract = new Contract(deployment.ticketNftAddress, TICKET_NFT_ABI, signer);
     const liveBaseUri = buildDemoMetadataUri(assetBaseUrl, item.ticketEventId, "live");
     const collectibleBaseUri = buildDemoMetadataUri(
       assetBaseUrl,
@@ -96,7 +95,7 @@ async function main(): Promise<void> {
       logger.info(
         {
           ticketEventId: item.ticketEventId,
-          ticketNftAddress: deployment.ticketNFT,
+          ticketNftAddress: deployment.ticketNftAddress,
         },
         "Demo asset base URIs already match the local demo asset server.",
       );
@@ -106,7 +105,7 @@ async function main(): Promise<void> {
     logger.info(
       {
         ticketEventId: item.ticketEventId,
-        ticketNftAddress: deployment.ticketNFT,
+        ticketNftAddress: deployment.ticketNftAddress,
         liveBaseUri,
         collectibleBaseUri,
       },

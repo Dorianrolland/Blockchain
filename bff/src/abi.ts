@@ -32,6 +32,4 @@ export const CHECKIN_ABI = [
 
 export const FACTORY_ABI = [
   "function totalEvents() view returns (uint256)",
-  "function getEventAt(uint256 index) view returns ((string eventId,string name,string symbol,uint256 primaryPrice,uint256 maxSupply,address treasury,address admin,address ticketNFT,address marketplace,address checkInRegistry,uint256 deploymentBlock,uint256 registeredAt))",
-  "function getEventById(string eventId) view returns ((string eventId,string name,string symbol,uint256 primaryPrice,uint256 maxSupply,address treasury,address admin,address ticketNFT,address marketplace,address checkInRegistry,uint256 deploymentBlock,uint256 registeredAt))",
 ] as const;

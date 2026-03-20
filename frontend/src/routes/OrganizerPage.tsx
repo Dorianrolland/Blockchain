@@ -100,7 +100,7 @@ export function OrganizerPage() {
   const {
     contractConfig,
     runtimeConfig,
-    indexedReadsAvailable,
+    remoteIndexedReadsAvailable,
     walletAddress,
     userRoles,
     systemState,
@@ -137,9 +137,9 @@ export function OrganizerPage() {
       "organizer-ops-summary",
       contractConfig.eventId,
       runtimeConfig.apiBaseUrl,
-      indexedReadsAvailable,
+      remoteIndexedReadsAvailable,
     ],
-    enabled: Boolean(bffClient && indexedReadsAvailable && contractConfig.eventId),
+    enabled: Boolean(bffClient && remoteIndexedReadsAvailable && contractConfig.eventId),
     retry: 1,
     refetchInterval: 25_000,
     queryFn: async () => bffClient!.getOperationalSummary(contractConfig.eventId),
@@ -506,7 +506,7 @@ export function OrganizerPage() {
             <p>Derived from indexed admin logs for the selected event.</p>
             {!bffClient ? (
               <p>Set a BFF API base URL to unlock indexed operator rosters.</p>
-            ) : !indexedReadsAvailable ? (
+            ) : !remoteIndexedReadsAvailable ? (
               <p>The BFF is reachable but the indexed organizer read model is not ready yet.</p>
             ) : opsSummaryQuery.isLoading ? (
               <p>Loading indexed operator assignments...</p>
@@ -710,7 +710,7 @@ export function OrganizerPage() {
             <h3>Recent admin activity</h3>
             {!bffClient ? (
               <p>Connect the BFF to inspect recent role changes and pause actions.</p>
-            ) : !indexedReadsAvailable ? (
+            ) : !remoteIndexedReadsAvailable ? (
               <p>Recent admin activity will appear here once the selected event is fully indexed by the BFF.</p>
             ) : opsSummaryQuery.isLoading ? (
               <p>Loading recent organizer activity...</p>

@@ -84,42 +84,19 @@ function makeBaseBindings() {
 }
 
 describe("chainTicketClient", () => {
-  it("builds wallet tickets from transfer history", async () => {
+  it("builds wallet tickets from current ownership", async () => {
     const bindings = makeBaseBindings();
 
+    bindings.ticket.totalMinted = vi.fn().mockResolvedValue(3n);
     bindings.ticket.ownerOf = vi.fn().mockImplementation(async (tokenId: bigint) => {
+      if (tokenId === 2n) {
+        return "0x00000000000000000000000000000000000000BB";
+      }
       if (tokenId === 1n) {
         return "0x00000000000000000000000000000000000000AA";
       }
-      return "0x00000000000000000000000000000000000000BB";
+      return "0x00000000000000000000000000000000000000AA";
     });
-
-    bindings.ticket.queryTransferEvents = vi.fn().mockResolvedValue([
-      {
-        from: "0x0000000000000000000000000000000000000000",
-        to: "0x00000000000000000000000000000000000000bb",
-        tokenId: 1n,
-        blockNumber: 1,
-        logIndex: 1,
-        txHash: "0x1",
-      },
-      {
-        from: "0x0000000000000000000000000000000000000000",
-        to: "0x00000000000000000000000000000000000000bb",
-        tokenId: 2n,
-        blockNumber: 2,
-        logIndex: 1,
-        txHash: "0x2",
-      },
-      {
-        from: "0x00000000000000000000000000000000000000bb",
-        to: "0x00000000000000000000000000000000000000aa",
-        tokenId: 1n,
-        blockNumber: 3,
-        logIndex: 1,
-        txHash: "0x3",
-      },
-    ]);
 
     bindings.marketplace.getListing = vi.fn().mockImplementation(async (tokenId: bigint) => {
       if (tokenId === 2n) {
